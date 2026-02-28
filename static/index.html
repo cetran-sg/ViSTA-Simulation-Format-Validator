@@ -1,0 +1,1153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>ViSTA Simulation Format Validator</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0f1117;--surface:#1a1d27;--card:#21242f;--border:#2e3244;
+  --accent:#4f8ef7;--accent2:#7c5ef7;--pass:#22c55e;--fail:#ef4444;
+  --warn:#f59e0b;--text:#e2e8f0;--muted:#8892a4;--radius:8px;
+}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;font-size:14px;display:flex;flex-direction:column}
+footer{background:var(--surface);border-top:1px solid var(--border);padding:12px 24px;text-align:center;font-size:12px;color:var(--muted);margin-top:auto}
+footer a{color:var(--muted);text-decoration:underline;text-underline-offset:2px}
+footer a:hover{color:var(--text)}
+header{background:var(--surface);border-bottom:1px solid var(--border);padding:0 24px;display:flex;align-items:center;gap:16px;height:56px}
+header h1{font-size:18px;font-weight:700;color:var(--accent);letter-spacing:-.3px}
+header .badge{background:var(--accent2);color:#fff;font-size:11px;padding:2px 8px;border-radius:99px;font-weight:600}
+header .badge-green{background:var(--pass)}
+.tabs{display:flex;background:var(--surface);border-bottom:1px solid var(--border);padding:0 24px;gap:4px;overflow-x:auto}
+.tab-btn{background:none;border:none;color:var(--muted);padding:12px 16px;cursor:pointer;font-size:13px;font-weight:500;border-bottom:2px solid transparent;white-space:nowrap;transition:color .15s,border-color .15s}
+.tab-btn.active{color:var(--accent);border-bottom-color:var(--accent)}
+.tab-btn:hover:not(.active){color:var(--text)}
+.tab-panel{display:none}.tab-panel.active{display:block}
+.container{max-width:1200px;margin:0 auto;padding:24px}
+.container-wide{max-width:none;margin:0;padding:24px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+@media(max-width:900px){.grid2{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:20px}
+.card-title{font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:16px}
+label{display:block;font-size:12px;color:var(--muted);margin-bottom:4px;font-weight:500}
+input[type=text],input[type=number],select{width:100%;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);padding:8px 12px;font-size:13px;outline:none;transition:border-color .15s}
+input[type=text]:focus,input[type=number]:focus,select:focus{border-color:var(--accent)}
+select option{background:var(--surface)}
+.upload-zone{border:2px dashed var(--border);border-radius:var(--radius);padding:24px;text-align:center;cursor:pointer;transition:border-color .15s,background .15s;position:relative}
+.upload-zone:hover,.upload-zone.drag-over{border-color:var(--accent);background:rgba(79,142,247,.06)}
+.upload-zone input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
+.upload-icon{font-size:28px;margin-bottom:8px}
+.upload-name{font-size:12px;color:var(--pass);margin-top:6px;word-break:break-all}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:9px 18px;border-radius:var(--radius);border:none;cursor:pointer;font-size:13px;font-weight:600;transition:opacity .15s,transform .1s}
+.btn:active{transform:scale(.98)}
+.btn-primary{background:var(--accent);color:#fff}.btn-primary:hover{opacity:.9}
+.btn-secondary{background:var(--border);color:var(--text)}.btn-secondary:hover{background:#3a3f57}
+.btn-danger{background:var(--fail);color:#fff}.btn-danger:hover{opacity:.85}
+.btn-sm{padding:5px 12px;font-size:12px}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.badge-pass{background:rgba(34,197,94,.18);color:var(--pass);padding:3px 10px;border-radius:99px;font-size:12px;font-weight:600}
+.badge-fail{background:rgba(239,68,68,.18);color:var(--fail);padding:3px 10px;border-radius:99px;font-size:12px;font-weight:600}
+.badge-warn{background:rgba(245,158,11,.18);color:var(--warn);padding:3px 10px;border-radius:99px;font-size:12px;font-weight:600}
+.badge-unknown{background:rgba(139,148,167,.15);color:var(--muted);padding:3px 10px;border-radius:99px;font-size:12px;font-weight:600}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;padding:8px 12px;color:var(--muted);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--border)}
+td{padding:10px 12px;border-bottom:1px solid rgba(46,50,68,.5)}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:rgba(255,255,255,.025)}
+/* Visualisation tab two-column layout */
+.viz-split{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
+.viz-map-col{position:sticky;top:96px;height:calc(100vh - 96px);display:flex;flex-direction:column;}
+#map{flex:1;min-height:200px;border-radius:var(--radius);z-index:0}
+@media(max-width:960px){
+  .viz-split{grid-template-columns:1fr}
+  .viz-map-col{position:static;height:auto}
+  #map{height:420px;flex:none}
+}
+.scrub-info{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:8px 14px;font-size:12px;font-family:monospace;color:var(--text);min-height:34px;display:flex;align-items:center}
+.chart-wrap{position:relative}
+.chart-wrap canvas{display:block}
+.chart-crosshair{position:absolute;top:0;bottom:0;width:1px;background:rgba(255,255,255,.4);pointer-events:none;display:none}
+/* Numeric config inputs */
+.excl-input{width:80px!important;text-align:right}
+/* Loading & errors */
+#loading{display:none;position:fixed;inset:0;background:rgba(15,17,23,.75);z-index:9999;place-items:center}
+#loading.active{display:grid}
+.spinner{width:48px;height:48px;border:4px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+#error-banner{display:none;background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.4);border-radius:var(--radius);padding:12px 16px;margin-bottom:16px;color:var(--fail);font-size:13px}
+#error-banner.active{display:block}
+.metric-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:20px}
+.metric-box{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px}
+.metric-label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px}
+.metric-value{font-size:22px;font-weight:700}
+.metric-value.pass{color:var(--pass)}.metric-value.fail{color:var(--fail)}.metric-value.warn{color:var(--warn)}.metric-value.neutral{color:var(--text)}
+.legend{display:flex;flex-wrap:wrap;gap:12px;font-size:12px;margin-bottom:12px}
+.legend-item{display:flex;align-items:center;gap:6px}
+.legend-dot{width:10px;height:10px;border-radius:50%}
+.section-gap{margin-bottom:20px}
+.flex-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.muted{color:var(--muted)}
+.hidden{display:none!important}
+hr{border:none;border-top:1px solid var(--border);margin:20px 0}
+.color-dot{width:12px;height:12px;border-radius:50%;flex-shrink:0}
+.batch-status{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:10px 14px;font-size:13px;color:var(--pass);margin-bottom:12px}
+/* Validation banners */
+.banner-pass{background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.4);color:var(--pass);border-radius:var(--radius);padding:14px 18px;font-size:14px}
+.banner-warn{background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.4);color:var(--warn);border-radius:var(--radius);padding:14px 18px;font-size:14px}
+.banner-fail{background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.4);color:var(--fail);border-radius:var(--radius);padding:14px 18px;font-size:14px}
+.validation-details{margin-top:16px;font-size:13px}
+.validation-details details{margin-bottom:8px}
+.validation-details summary{cursor:pointer;font-weight:600;padding:6px 0;user-select:none}
+.validation-details summary:hover{color:var(--accent)}
+/* Data format guide */
+.format-guide pre{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px;font-size:12px;font-family:monospace;color:var(--text);overflow-x:auto;margin:8px 0 16px}
+.format-guide .guide-section{margin-bottom:14px}
+.format-guide .guide-label{font-size:12px;color:var(--muted);font-weight:600;margin-bottom:4px}
+/* Playback controls */
+.playback-bar{display:flex;align-items:center;gap:12px;padding:8px 14px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);flex-wrap:wrap}
+.speed-pills{display:flex;background:var(--bg);border:1px solid var(--border);border-radius:6px;overflow:hidden}
+.speed-btn{background:none;border:none;color:var(--muted);padding:4px 12px;cursor:pointer;font-size:12px;font-weight:600;transition:background .15s,color .15s}
+.speed-btn:hover:not(.active){color:var(--text)}
+.speed-btn.active{background:var(--accent);color:#fff}
+.playback-time{font-family:monospace;font-size:12px;color:var(--text);min-width:110px}
+</style>
+</head>
+<body>
+<div id="loading"><div class="spinner"></div></div>
+
+<header>
+  <h1>ViSTA Simulation Format Validator</h1>
+  <span class="badge badge-green">Class 3</span>
+  <span class="badge">Class 4</span>
+</header>
+
+<div class="tabs">
+  <button class="tab-btn active" data-tab="upload">Upload</button>
+  <button class="tab-btn" data-tab="viz">Visualisation</button>
+  <button class="tab-btn" data-tab="config">Configuration</button>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     UPLOAD TAB
+     ═══════════════════════════════════════════════════════════════ -->
+<div class="tab-panel active" data-panel="upload">
+<div class="container">
+  <div id="error-banner"></div>
+
+  <!-- Data Format Guide -->
+  <div class="card section-gap format-guide">
+    <div class="card-title">Data Format Guide</div>
+    <div class="guide-section">
+      <div class="guide-label">ZIP structure</div>
+      <pre>{TestCaseId}/{runId}/VUT_status.csv
+{TestCaseId}/{runId}/Environment_actors_true.csv</pre>
+    </div>
+    <div class="guide-section">
+      <div class="guide-label">VUT_status required columns</div>
+      <pre>Time, Step_number, VUT_pos_lat, VUT_pos_lng, VUT_heading, VUT_vel_abs</pre>
+    </div>
+    <div class="guide-section">
+      <div class="guide-label">Environment_actors_true required columns</div>
+      <pre>Time, Step_number, Actor_Id, Actor_type, Actor_pos_true_lat, Actor_pos_true_lng, Actor_heading_true</pre>
+    </div>
+    <div class="guide-section">
+      <div class="guide-label">Coordinate ranges</div>
+      <p style="font-size:12px;color:var(--muted);">
+        Latitude: <strong style="color:var(--text)">−90 to 90</strong> &nbsp;·&nbsp;
+        Longitude: <strong style="color:var(--text)">−180 to 360</strong> &nbsp;·&nbsp;
+        Heading: <strong style="color:var(--text)">0 to 360</strong> &nbsp;·&nbsp;
+        Velocity (VUT_vel_abs): <strong style="color:var(--text)">≥ 0</strong>
+      </p>
+    </div>
+  </div>
+
+  <!-- Upload zone -->
+  <div class="card section-gap">
+    <div class="card-title">Upload Simulation Results ZIP</div>
+    <div class="upload-zone" id="zip-drop" style="margin-bottom:12px;">
+      <input type="file" id="zip-file" accept=".zip"/>
+      <div class="upload-icon">🗜</div>
+      <div>Drop the ZIP file containing test case result files here, or click to browse</div>
+      <div class="upload-name" id="zip-name" style="display:none"></div>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+      <button class="btn btn-primary" onclick="uploadBatch()">Upload &amp; Validate</button>
+      <button class="btn btn-danger btn-sm" id="clear-batch-btn" style="display:none;" onclick="clearBatchData()">&#x2715; Clear uploaded data</button>
+    </div>
+    <div id="batch-status" class="batch-status hidden"></div>
+
+    <!-- Validation banner (shown after upload) -->
+    <div id="validation-banner" style="display:none;margin-top:16px;"></div>
+
+    <!-- Expandable per-run error list -->
+    <div id="validation-details" class="validation-details" style="display:none;"></div>
+
+    <button id="batch-goto-viz" class="btn btn-secondary" style="display:none;margin-top:14px;" onclick="switchTab('viz')">
+      Go to Visualisation &#8594;
+    </button>
+  </div>
+</div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     VISUALISATION TAB  (Map + Charts + Playback)
+     ═══════════════════════════════════════════════════════════════ -->
+<div class="tab-panel" data-panel="viz">
+<div class="container-wide">
+
+  <!-- Run Selector -->
+  <div class="card" style="margin-bottom:16px;padding:16px;" id="viz-tc-panel">
+    <div class="card-title" style="margin-bottom:12px;">Run Selector</div>
+    <div id="viz-no-batch" class="muted" style="font-size:13px;">
+      No batch uploaded. Load a ZIP from the Upload tab.
+    </div>
+    <div id="viz-batch-section" class="hidden">
+      <div style="display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-bottom:14px;">
+        <div style="flex:1;min-width:200px;">
+          <label>Test Case</label>
+          <select id="viz-tc" onchange="onVizTcChange()">
+            <option value="">— select test case —</option>
+          </select>
+        </div>
+        <button class="btn btn-primary" id="viz-eval-btn" onclick="evalVizAllRuns()">&#9654; Validate All Runs</button>
+      </div>
+      <div id="viz-run-list" style="display:flex;flex-wrap:wrap;gap:8px;min-height:32px;align-items:center;">
+        <span class="muted" style="font-size:13px;">Select a test case to load its runs.</span>
+      </div>
+    </div>
+  </div>
+
+  <div id="eval-results-section" class="hidden" style="margin-bottom:16px;">
+    <div class="card" style="margin-bottom:12px;padding:16px;">
+      <div class="card-title" style="margin-bottom:10px;">Test Case Validation Summary</div>
+      <div class="metric-grid" id="tc-metric-grid"></div>
+    </div>
+  </div>
+
+  <div id="viz-placeholder" class="muted" style="text-align:center;padding:40px 0;">Select a test case and evaluate runs to see the visualisation.</div>
+  <div id="viz-content" class="hidden">
+    <div class="playback-bar" id="viz-playback-bar" style="margin-bottom:12px;">
+      <button class="btn btn-sm btn-primary" id="viz-play-btn" onclick="toggleVizPlayback()">&#9654; Play</button>
+      <button class="btn btn-sm btn-secondary" onclick="resetPlayback()">&#9664;&#9664; Reset</button>
+      <div class="speed-pills">
+        <button class="speed-btn" data-speed="0.5" onclick="setPlaybackSpeed(0.5)">0.5×</button>
+        <button class="speed-btn active" data-speed="1" onclick="setPlaybackSpeed(1)">1×</button>
+        <button class="speed-btn" data-speed="2" onclick="setPlaybackSpeed(2)">2×</button>
+      </div>
+      <span class="playback-time" id="viz-playback-time">— / —</span>
+    </div>
+    <div class="viz-split">
+
+      <!-- Left column: sticky map -->
+      <div class="viz-map-col">
+        <div class="card" style="padding:16px;flex:1;min-height:0;display:flex;flex-direction:column;">
+          <div class="card-title">Trajectory Map</div>
+          <div class="legend" id="viz-legend"></div>
+          <div id="map"></div>
+        </div>
+        <div class="scrub-info" id="scrub-info" style="margin-top:12px;flex-shrink:0;">Hover over a chart to scrub the map</div>
+      </div>
+
+      <!-- Right column: scrollable chart stack -->
+      <div class="viz-charts-col" style="display:flex;flex-direction:column;gap:12px;">
+        <div class="card" style="padding:14px;">
+          <div class="card-title" style="margin-bottom:8px;">Velocity (km/h)</div>
+          <div class="chart-wrap" style="height:180px;">
+            <canvas id="vel-chart"></canvas>
+            <div class="chart-crosshair" id="vel-xhair"></div>
+          </div>
+        </div>
+
+        <div class="card" style="padding:14px;">
+          <div class="card-title" style="margin-bottom:8px;">Acceleration (m/s²)</div>
+          <div class="chart-wrap" style="height:160px;">
+            <canvas id="acc-chart"></canvas>
+            <div class="chart-crosshair" id="acc-xhair"></div>
+          </div>
+        </div>
+
+        <div class="card" style="padding:14px;">
+          <div class="card-title" style="margin-bottom:8px;">Braking &amp; Throttle (%)</div>
+          <div class="chart-wrap" style="height:160px;">
+            <canvas id="brake-chart"></canvas>
+            <div class="chart-crosshair" id="brake-xhair"></div>
+          </div>
+        </div>
+
+        <div class="card" style="padding:14px;">
+          <div class="card-title" style="margin-bottom:8px;">Indicators &amp; Hazard</div>
+          <div class="chart-wrap" style="height:160px;">
+            <canvas id="ind-chart"></canvas>
+            <div class="chart-crosshair" id="ind-xhair"></div>
+          </div>
+        </div>
+
+        <div class="card" style="padding:14px;">
+          <div class="card-title" style="margin-bottom:8px;">Reverse &amp; Brake Light</div>
+          <div class="chart-wrap" style="height:160px;">
+            <canvas id="revbrk-chart"></canvas>
+            <div class="chart-crosshair" id="revbrk-xhair"></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     CONFIGURATION TAB
+     ═══════════════════════════════════════════════════════════════ -->
+<div class="tab-panel" data-panel="config">
+<div class="container">
+
+  <!-- VUT Dimensions & CoG -->
+  <div class="card section-gap">
+    <div class="card-title">VUT Dimensions</div>
+    <p class="muted" style="font-size:13px;margin-bottom:16px;">
+      Dimensions of the Vehicle Under Test used for bounding-box rendering on the trajectory map.
+    </p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:480px;margin-bottom:24px;">
+      <label style="display:flex;flex-direction:column;gap:6px;font-size:13px;">
+        Length (m)
+        <input type="number" id="vut-length" class="excl-input" value="4.00" min="0.1" max="30" step="0.01"
+               style="width:100%;"/>
+      </label>
+      <label style="display:flex;flex-direction:column;gap:6px;font-size:13px;">
+        Width (m)
+        <input type="number" id="vut-width" class="excl-input" value="1.90" min="0.1" max="10" step="0.01"
+               style="width:100%;"/>
+      </label>
+    </div>
+
+    <div class="card-title" style="margin-bottom:8px;">Centre of Gravity (CoG)</div>
+    <p class="muted" style="font-size:13px;margin-bottom:16px;">
+      Distance from the CoG to the front bumper and left edge. Many simulation tools report
+      positions at the CoG — these offsets anchor the bounding box correctly.
+      Set independently of the overall dimensions, as the CoG may not be at the geometric centre.
+    </p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:480px;margin-bottom:16px;">
+      <label style="display:flex;flex-direction:column;gap:6px;font-size:13px;">
+        CoG to front bumper (m)
+        <input type="number" id="vut-cog-front" class="excl-input" value="2.00" min="0" max="30" step="0.01"
+               style="width:100%;"/>
+      </label>
+      <label style="display:flex;flex-direction:column;gap:6px;font-size:13px;">
+        CoG to left edge (m)
+        <input type="number" id="vut-cog-left" class="excl-input" value="0.95" min="0" max="10" step="0.01"
+               style="width:100%;"/>
+      </label>
+    </div>
+    <div style="display:flex;gap:8px;">
+      <button class="btn btn-primary btn-sm" id="vut-commit-btn" onclick="commitVutConfig()">Commit Changes</button>
+      <button class="btn btn-secondary btn-sm" onclick="resetVutConfig()">Reset to Defaults</button>
+    </div>
+  </div>
+
+</div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     JAVASCRIPT
+     ═══════════════════════════════════════════════════════════════ -->
+<script>
+/*
+ * ======================================================================
+ * ViSTA Simulation Format Validator — Frontend JavaScript
+ * ======================================================================
+ *
+ * Architecture
+ * ------------
+ * Single-page application (SPA) with no build step.
+ *
+ * Tab structure (3 tabs):
+ *   upload    → ZIP upload + validation banner + data format guide
+ *   viz       → Visualisation: run selector + map + velocity/control charts
+ *   config    → VUT dimensions + CoG offsets
+ *
+ * Data flow:
+ *   1. User uploads ZIP → uploadBatch() → POST /api/batch/upload.
+ *   2. Validation banner shown immediately from upload response.
+ *   3. User selects TC in Visualisation tab → evalVizAllRuns() → all runs evaluated.
+ *   4. renderVisualisation() populates map + charts.
+ *
+ * Libraries:
+ *   Leaflet.js 1.9.4  — interactive maps (CDN)
+ *   Chart.js   4.4.0  — time-series charts (CDN)
+ * ======================================================================
+ */
+
+// ── State ────────────────────────────────────────────────────────
+let actorTypeList = [];
+let evalResult    = null;
+let mapInstance   = null;
+let chartInstances = {};
+let batchLoaded   = false;
+
+// Map scrub markers
+let vutScrubMarker    = null;
+let actorScrubMarkers = [];
+
+// Viz tab state
+let vizTcResults = {};  // { runId: evalResult | null }
+let vizActiveTc  = '';
+
+// Color palettes
+const ACTOR_COLORS = ['#f87171','#fb923c','#facc15','#4ade80','#34d399','#a78bfa','#f472b6','#38bdf8'];
+
+// VUT configuration (dimensions + CoG) — defaults match config.py
+const VUT_DEFAULTS = { length: 4.00, width: 1.90, cog_to_front: 2.00, cog_to_left: 0.95 };
+let vutConfig = { ...VUT_DEFAULTS };
+
+function commitVutConfig() {
+  const length      = parseFloat(document.getElementById('vut-length').value);
+  const width       = parseFloat(document.getElementById('vut-width').value);
+  const cog_to_front = parseFloat(document.getElementById('vut-cog-front').value);
+  const cog_to_left  = parseFloat(document.getElementById('vut-cog-left').value);
+  if ([length, width, cog_to_front, cog_to_left].some(v => isNaN(v) || v <= 0)) {
+    showError('All dimension and CoG values must be positive numbers.'); return;
+  }
+  vutConfig = { length, width, cog_to_front, cog_to_left };
+  const btn = document.getElementById('vut-commit-btn');
+  const prev = btn.textContent;
+  btn.textContent = '✓ Committed';
+  btn.disabled = true;
+  setTimeout(() => { btn.textContent = prev; btn.disabled = false; }, 1800);
+}
+function resetVutConfig() {
+  vutConfig = { ...VUT_DEFAULTS };
+  document.getElementById('vut-length').value    = vutConfig.length;
+  document.getElementById('vut-width').value     = vutConfig.width;
+  document.getElementById('vut-cog-front').value = vutConfig.cog_to_front;
+  document.getElementById('vut-cog-left').value  = vutConfig.cog_to_left;
+}
+
+// ── Boot ─────────────────────────────────────────────────────────
+(async () => {
+  try {
+    const r = await fetch('/api/actor-types');
+    const d = await r.json();
+    actorTypeList = d.types;
+  } catch(e) { actorTypeList = []; }
+})();
+
+// ── Tab switching ─────────────────────────────────────────────────
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    if (Playback.active) { Playback.pause(); setPlayBtn(false); }
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.querySelector(`[data-panel="${btn.dataset.tab}"]`).classList.add('active');
+    if (btn.dataset.tab === 'viz') {
+      initVizTcPanel();
+      setTimeout(() => mapInstance && mapInstance.invalidateSize(), 60);
+    }
+  });
+});
+
+function switchTab(name) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.dataset.panel === name));
+  if (name === 'viz') {
+    initVizTcPanel();
+    setTimeout(() => mapInstance && mapInstance.invalidateSize(), 60);
+  }
+}
+
+// ── File drop zone ─────────────────────────────────────────────
+function setupDrop(dropId, inputId, nameId, onChange) {
+  const zone  = document.getElementById(dropId);
+  const input = document.getElementById(inputId);
+  const name  = document.getElementById(nameId);
+  if (!zone) return;
+  input.addEventListener('change', () => {
+    if (input.files[0]) { name.textContent = input.files[0].name; name.style.display = 'block'; }
+    if (onChange) onChange();
+  });
+  zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-over'); });
+  zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
+  zone.addEventListener('drop', e => {
+    e.preventDefault(); zone.classList.remove('drag-over');
+    if (e.dataTransfer.files[0]) {
+      const dt = new DataTransfer(); dt.items.add(e.dataTransfer.files[0]);
+      input.files = dt.files; name.textContent = e.dataTransfer.files[0].name; name.style.display = 'block';
+      if (onChange) onChange();
+    }
+  });
+}
+setupDrop('zip-drop', 'zip-file', 'zip-name');
+
+// ── Batch upload ──────────────────────────────────────────────────
+async function uploadBatch() {
+  const file = document.getElementById('zip-file').files[0];
+  if (!file) { showError('Please select a ZIP file.'); return; }
+  showLoading(true); hideError();
+  const fd = new FormData(); fd.append('zip_file', file);
+  try {
+    const res = await fetch('/api/batch/upload', { method:'POST', body:fd });
+    if (!res.ok) throw new Error((await res.json()).detail || 'Server error');
+    const d = await res.json();
+    batchLoaded = true;
+    const statusEl = document.getElementById('batch-status');
+    statusEl.textContent = `Loaded ${d.test_case_count} test case(s), ${d.run_count} run(s)`;
+    statusEl.classList.remove('hidden');
+    document.getElementById('batch-goto-viz').style.display = 'inline-flex';
+    document.getElementById('clear-batch-btn').style.display = 'inline-flex';
+    showValidationBanner(d);
+  } catch(e) { showError('Upload failed: ' + e.message); }
+  finally { showLoading(false); }
+}
+
+function showValidationBanner(uploadData) {
+  const { overall_valid, valid_runs, invalid_runs, run_count, validation_details } = uploadData;
+
+  // Check if any valid runs have warnings
+  const hasWarnings = Object.values(validation_details || {}).some(runs =>
+    Object.values(runs).some(r => r.valid && r.warnings && r.warnings.length > 0)
+  );
+
+  let cls, icon, msg;
+  if (invalid_runs > 0) {
+    cls  = 'banner-fail';
+    icon = '✗';
+    msg  = `Invalid data format — ${invalid_runs} run${invalid_runs !== 1 ? 's' : ''} have errors`;
+  } else if (hasWarnings) {
+    cls  = 'banner-warn';
+    icon = '⚠';
+    msg  = 'Valid format with warnings';
+  } else {
+    cls  = 'banner-pass';
+    icon = '✓';
+    msg  = 'Valid data format';
+  }
+
+  const banner = document.getElementById('validation-banner');
+  banner.className = cls;
+  banner.innerHTML = `<strong>${icon} ${msg}</strong><span style="color:inherit;opacity:.7;font-size:13px;margin-left:12px;">${valid_runs} of ${run_count} run${run_count !== 1 ? 's' : ''} valid</span>`;
+  banner.style.display = 'block';
+
+  // Build expandable per-run error list
+  const detailsEl = document.getElementById('validation-details');
+  let detailsHtml = '';
+  const sortRunEntries = entries => entries.sort(([a], [b]) => {
+    const na = parseInt(a.replace(/\D/g, ''), 10);
+    const nb = parseInt(b.replace(/\D/g, ''), 10);
+    return na - nb;
+  });
+  for (const [tcId, runs] of Object.entries(validation_details || {})) {
+    const runsHtml = sortRunEntries(Object.entries(runs)).map(([runId, v]) => {
+      const runValid = v.valid;
+      const runHasWarn = runValid && v.warnings && v.warnings.length > 0;
+      const status = runValid ? (runHasWarn ? '⚠ Warning' : '✓ Valid') : '✗ Invalid';
+      const color  = runValid ? (runHasWarn ? 'var(--warn)' : 'var(--pass)') : 'var(--fail)';
+      let items = '';
+      if (v.errors   && v.errors.length)   items += v.errors.map(e   => `<li style="color:var(--fail);margin-bottom:2px;">${e}</li>`).join('');
+      if (v.warnings && v.warnings.length) items += v.warnings.map(w => `<li style="color:var(--warn);margin-bottom:2px;">${w}</li>`).join('');
+      return `<div style="margin-left:16px;margin-bottom:8px;">
+        <span style="color:${color};font-weight:600;">${runId}</span>
+        <span style="color:var(--muted);margin-left:8px;font-size:12px;">${status}</span>
+        ${items ? `<ul style="margin:4px 0 0 20px;font-size:12px;list-style:disc;">${items}</ul>` : ''}
+      </div>`;
+    }).join('');
+    detailsHtml += `<details style="margin-bottom:8px;">
+      <summary style="cursor:pointer;font-weight:600;padding:4px 0;user-select:none;">${tcId}</summary>
+      <div style="margin-top:8px;">${runsHtml}</div>
+    </details>`;
+  }
+  detailsEl.innerHTML = detailsHtml;
+  detailsEl.style.display = detailsHtml ? 'block' : 'none';
+}
+
+// ── Clear uploaded data ───────────────────────────────────────────
+async function clearBatchData() {
+  if (!confirm('Clear all uploaded data and validation results?')) return;
+  showLoading(true);
+  try {
+    await fetch('/api/batch/clear', { method: 'DELETE' });
+  } catch(e) { /* ignore — reset UI regardless */ }
+  finally { showLoading(false); }
+
+  batchLoaded  = false;
+  vizActiveTc  = '';
+  vizTcResults = {};
+  evalResult   = null;
+
+  Object.keys(chartInstances).forEach(id => destroyChart(id));
+  clearMapLayers();
+  if (vutScrubMarker) { vutScrubMarker.remove(); vutScrubMarker = null; }
+  actorScrubMarkers.forEach(m => m && m.remove()); actorScrubMarkers = [];
+
+  // Reset Upload tab
+  document.getElementById('zip-file').value = '';
+  document.getElementById('zip-name').style.display = 'none';
+  document.getElementById('batch-status').classList.add('hidden');
+  document.getElementById('batch-goto-viz').style.display = 'none';
+  document.getElementById('clear-batch-btn').style.display = 'none';
+  document.getElementById('validation-banner').style.display = 'none';
+  document.getElementById('validation-details').style.display = 'none';
+  hideError();
+
+  // Reset Visualisation tab
+  document.getElementById('viz-no-batch').style.display = 'block';
+  document.getElementById('viz-batch-section').classList.add('hidden');
+  document.getElementById('eval-results-section').classList.add('hidden');
+  document.getElementById('viz-placeholder').classList.remove('hidden');
+  document.getElementById('viz-content').classList.add('hidden');
+  document.getElementById('viz-run-list').innerHTML =
+    '<span class="muted" style="font-size:13px;">Select a test case to load its runs.</span>';
+  document.getElementById('viz-tc').value = '';
+}
+
+async function refreshBatchTcDropdown(selId) {
+  const sel = document.getElementById(selId);
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">— select test case —</option>';
+  try {
+    const r = await fetch('/api/batch/test-cases');
+    const d = await r.json();
+    (d.test_cases || []).forEach(tc => {
+      sel.innerHTML += `<option value="${tc.id}">${tc.id}</option>`;
+    });
+    if (cur) sel.value = cur;
+  } catch(e) {}
+}
+
+
+// ── Viz tab: run selector ─────────────────────────────────────────
+
+async function initVizTcPanel() {
+  const noB  = document.getElementById('viz-no-batch');
+  const batS = document.getElementById('viz-batch-section');
+  if (!batchLoaded) {
+    noB.style.display = 'block';
+    batS.classList.add('hidden');
+    return;
+  }
+  noB.style.display = 'none';
+  batS.classList.remove('hidden');
+  await refreshBatchTcDropdown('viz-tc');
+  if (vizActiveTc) {
+    const opt = document.querySelector(`#viz-tc option[value="${vizActiveTc}"]`);
+    if (opt) {
+      document.getElementById('viz-tc').value = vizActiveTc;
+      try {
+        const r = await fetch(`/api/batch/runs/${encodeURIComponent(vizActiveTc)}`);
+        const d = await r.json();
+        renderVizRunList(d.runs || [], vizTcResults);
+      } catch(e) {}
+    }
+  }
+}
+
+async function onVizTcChange() {
+  const tc = document.getElementById('viz-tc').value;
+  vizActiveTc  = tc;
+  vizTcResults = {};
+  const list = document.getElementById('viz-run-list');
+  if (!tc) {
+    list.innerHTML = '<span class="muted" style="font-size:13px;">Select a test case to load its runs.</span>';
+    return;
+  }
+  list.innerHTML = '<span class="muted" style="font-size:13px;">Loading…</span>';
+  try {
+    const r = await fetch(`/api/batch/runs/${encodeURIComponent(tc)}`);
+    const d = await r.json();
+    renderVizRunList(d.runs || [], {});
+  } catch(e) {
+    list.innerHTML = '<span class="muted" style="font-size:13px;">Error loading runs.</span>';
+  }
+}
+
+async function evalVizAllRuns() {
+  const tc = document.getElementById('viz-tc').value || vizActiveTc;
+  if (!tc) { alert('Select a test case first.'); return; }
+  const r = await fetch(`/api/batch/runs/${encodeURIComponent(tc)}`);
+  const d = await r.json();
+  const runs = d.runs || [];
+  if (!runs.length) { alert('No runs found for this test case.'); return; }
+
+  showLoading(true);
+  vizTcResults = {};
+  try {
+    await Promise.all(runs.map(async run => {
+      try {
+        const fd = new FormData();
+        fd.append('test_case_id', tc);
+        fd.append('run_id',       run.id);
+        const res = await fetch('/api/batch/evaluate', { method:'POST', body:fd });
+        vizTcResults[run.id] = res.ok ? await res.json() : null;
+      } catch(e) {
+        vizTcResults[run.id] = null;
+      }
+    }));
+    renderVizRunList(runs, vizTcResults);
+    renderAllRunsResults();
+    const first = runs.find(run => vizTcResults[run.id] !== null && vizTcResults[run.id] !== undefined);
+    if (first) selectVizRun(first.id);
+  } finally {
+    showLoading(false);
+  }
+}
+
+function renderVizRunList(runs, results) {
+  const list = document.getElementById('viz-run-list');
+  if (!runs.length) {
+    list.innerHTML = '<span class="muted" style="font-size:13px;">No runs found.</span>';
+    return;
+  }
+  list.innerHTML = '';
+  runs.forEach(run => {
+    const res = results[run.id]; // undefined=pending, null=error, object=success
+    let badgeHtml = '';
+    if (res !== undefined) {
+      if (res === null) {
+        badgeHtml = ' <span class="badge-fail" style="font-size:10px;padding:2px 7px;">ERR</span>';
+      } else {
+        const v = res.validation || {};
+        if (!v.valid) {
+          badgeHtml = ' <span class="badge-fail" style="font-size:10px;padding:2px 7px;">Invalid</span>';
+        } else if (v.warnings && v.warnings.length > 0) {
+          badgeHtml = ' <span class="badge-warn" style="font-size:10px;padding:2px 7px;">Warning</span>';
+        } else {
+          badgeHtml = ' <span class="badge-pass" style="font-size:10px;padding:2px 7px;">Valid</span>';
+        }
+      }
+    }
+    const btn = document.createElement('button');
+    btn.id = `viz-run-btn-${CSS.escape(run.id)}`;
+    btn.className = 'btn btn-secondary btn-sm';
+    btn.style.cssText = 'border:1px solid var(--border);transition:border-color .15s,color .15s;';
+    btn.innerHTML = run.id + badgeHtml;
+    if (res && res !== null) {
+      btn.onclick = () => selectVizRun(run.id);
+    } else {
+      btn.style.opacity = res === null ? '0.5' : '0.7';
+      btn.style.cursor  = res === null ? 'not-allowed' : 'default';
+    }
+    list.appendChild(btn);
+  });
+}
+
+function selectVizRun(runId) {
+  if (!vizTcResults[runId]) return;
+  evalResult = vizTcResults[runId];
+  renderAllRunsResults();
+  document.querySelectorAll('[id^="viz-run-btn-"]').forEach(b => {
+    const isActive = b.id === `viz-run-btn-${CSS.escape(runId)}`;
+    b.style.borderColor = isActive ? 'var(--accent)' : 'var(--border)';
+    b.style.color       = isActive ? 'var(--accent)' : '';
+    b.style.fontWeight  = isActive ? '700' : '';
+  });
+  try { renderAll(); } catch(e) { console.error('Render error:', e); }
+}
+
+// ── All-runs validation summary ───────────────────────────────────
+function renderAllRunsResults() {
+  const evaluated = Object.entries(vizTcResults);
+  const anyInvalid = evaluated.some(([, r]) => r !== null && r?.validation?.valid === false);
+  const anyWarn    = !anyInvalid && evaluated.some(([, r]) =>
+    r !== null && r?.validation?.valid === true && r?.validation?.warnings?.length > 0);
+
+  let status = '—', statusClass = 'neutral';
+  if (evaluated.length > 0) {
+    if (anyInvalid)     { status = 'Invalid';         statusClass = 'fail'; }
+    else if (anyWarn)   { status = 'Valid (Warnings)'; statusClass = 'warn'; }
+    else if (evaluated.every(([, r]) => r !== null && r?.validation?.valid === true))
+                        { status = 'Valid';            statusClass = 'pass'; }
+  }
+
+  const metricGrid = document.getElementById('tc-metric-grid');
+  if (metricGrid) {
+    metricGrid.innerHTML =
+      `<div class="metric-box"><div class="metric-label">Test Case</div><div class="metric-value neutral" style="font-size:14px;">${vizActiveTc || '—'}</div></div>` +
+      `<div class="metric-box"><div class="metric-label">Format Status</div><div class="metric-value ${statusClass}">${status}</div></div>`;
+  }
+  document.getElementById('eval-results-section')?.classList.remove('hidden');
+}
+
+// ── Render all (map + charts) ─────────────────────────────────────
+function renderAll() {
+  if (Playback.active) Playback.pause();
+  Playback.tCurrent = 0;
+  setPlayBtn(false);
+  renderVisualisation();
+}
+
+
+// ── Synced scrubbing controller ───────────────────────────────────
+const VizScrub = {
+  entries: [],
+  reset() { this.entries = []; },
+  register(canvasId, xhairId) {
+    this.entries.push({canvasId, xhairId});
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+    canvas.addEventListener('mousemove', e => {
+      const chart = chartInstances[canvasId];
+      if (!chart?.scales?.x) return;
+      const tVal = chart.scales.x.getValueForPixel(e.clientX - canvas.getBoundingClientRect().left);
+      this.scrub(tVal);
+    });
+    canvas.addEventListener('click', e => {
+      const chart = chartInstances[canvasId];
+      if (!chart?.scales?.x) return;
+      const tVal = chart.scales.x.getValueForPixel(e.clientX - canvas.getBoundingClientRect().left);
+      Playback.tCurrent = tVal;
+      this.scrub(tVal);
+    });
+    canvas.addEventListener('mouseleave', () => this.clear());
+  },
+  scrub(tVal) {
+    if (tVal == null) return;
+    this.entries.forEach(({canvasId, xhairId}) => {
+      const chart = chartInstances[canvasId];
+      const el    = document.getElementById(xhairId);
+      if (!chart?.scales?.x || !el) return;
+      el.style.left    = chart.scales.x.getPixelForValue(tVal) + 'px';
+      el.style.display = 'block';
+    });
+    const vut = evalResult?.vut;
+    if (vutScrubMarker && vut?.t) {
+      const idx = bisect(vut.t, tVal);
+      if (idx >= 0) updateObb(vutScrubMarker, vut.lat[idx], vut.lng[idx],
+        (vut.heading||[])[idx]||0, vutConfig.length, vutConfig.width, vutConfig.cog_to_front, vutConfig.cog_to_left);
+    }
+    (evalResult?.actors || []).forEach((actor, i) => {
+      const m = actorScrubMarkers[i];
+      if (!m) return;
+      const traj = actor.trajectory || {};
+      if (traj.t && traj.lat) {
+        const idx = bisect(traj.t, tVal);
+        if (idx >= 0) {
+          const [aLen, aWid] = actorDims(actor.actor_type);
+          updateObb(m, traj.lat[idx], traj.lng[idx], (traj.heading||[])[idx]||0, aLen, aWid, aLen/2, aWid/2);
+        }
+      }
+    });
+    const vel = vut?.vel_kmh ? vut.vel_kmh[bisect(vut.t, tVal)] : null;
+    const infoEl = document.getElementById('scrub-info');
+    if (infoEl) infoEl.textContent = `t = ${tVal.toFixed(2)} s  |  ${vel != null ? vel.toFixed(1) + ' km/h' : '—'}`;
+  },
+  clear() {
+    this.entries.forEach(({xhairId}) => {
+      const el = document.getElementById(xhairId);
+      if (el) el.style.display = 'none';
+    });
+    const infoEl = document.getElementById('scrub-info');
+    if (infoEl) infoEl.textContent = 'Hover over a chart to scrub the map';
+  },
+};
+
+function bisect(arr, val) {
+  if (!arr || !arr.length) return -1;
+  let lo = 0, hi = arr.length - 1;
+  while (lo < hi) { const mid = (lo + hi) >> 1; if (arr[mid] < val) lo = mid + 1; else hi = mid; }
+  if (lo > 0 && Math.abs(arr[lo-1] - val) < Math.abs(arr[lo] - val)) return lo - 1;
+  return lo;
+}
+
+// ── Playback engine ───────────────────────────────────────────────
+const Playback = {
+  active:     false,
+  speed:      1,
+  tCurrent:   0,
+  tMin:       0,
+  tMax:       0,
+  rafId:      null,
+  lastWallMs: null,
+  onTick:     null,
+  onStop:     null,
+
+  start(tMin, tMax, onTick, onStop) {
+    if (this.rafId) cancelAnimationFrame(this.rafId);
+    this.tMin   = tMin;
+    this.tMax   = tMax;
+    this.onTick = onTick;
+    this.onStop = onStop;
+    if (this.tCurrent >= tMax || this.tCurrent < tMin) this.tCurrent = tMin;
+    this.active     = true;
+    this.lastWallMs = null;
+    this.rafId      = requestAnimationFrame(ts => this._tick(ts));
+  },
+
+  pause() {
+    this.active = false;
+    if (this.rafId) { cancelAnimationFrame(this.rafId); this.rafId = null; }
+    if (this.onStop) this.onStop();
+  },
+
+  _tick(timestamp) {
+    if (!this.active) return;
+    if (this.lastWallMs !== null) {
+      const dt      = (timestamp - this.lastWallMs) / 1000 * this.speed;
+      this.tCurrent = Math.min(this.tCurrent + dt, this.tMax);
+    }
+    this.lastWallMs = timestamp;
+    if (this.onTick) this.onTick(this.tCurrent);
+    if (this.tCurrent < this.tMax) {
+      this.rafId = requestAnimationFrame(ts => this._tick(ts));
+    } else {
+      this.active = false;
+      this.rafId  = null;
+      if (this.onStop) this.onStop();
+    }
+  },
+};
+
+function setPlaybackSpeed(speed) {
+  Playback.speed = speed;
+  document.querySelectorAll('.speed-btn').forEach(b =>
+    b.classList.toggle('active', parseFloat(b.dataset.speed) === speed));
+}
+
+function setPlayBtn(playing) {
+  const btn = document.getElementById('viz-play-btn');
+  if (btn) btn.innerHTML = playing ? '&#9646;&#9646; Pause' : '&#9654; Play';
+}
+
+function fmtPlayTime(t, tMax) {
+  return `${t.toFixed(1)} s / ${tMax.toFixed(1)} s`;
+}
+
+function resetPlayback() {
+  if (Playback.active) Playback.pause();
+  const tArr = evalResult?.vut?.t;
+  const tMin = tArr?.[0] ?? 0;
+  const tMax = tArr?.length ? tArr[tArr.length - 1] : 0;
+  Playback.tCurrent = tMin;
+  setPlayBtn(false);
+  const timeEl = document.getElementById('viz-playback-time');
+  if (timeEl) timeEl.textContent = fmtPlayTime(tMin, tMax);
+  VizScrub.scrub(tMin);
+}
+
+function toggleVizPlayback() {
+  if (Playback.active) {
+    Playback.pause();
+    setPlayBtn(false);
+  } else {
+    const tArr = evalResult?.vut?.t;
+    if (!tArr?.length) return;
+    const tMax = tArr[tArr.length - 1];
+    Playback.start(tArr[0], tMax, t => {
+      VizScrub.scrub(t);
+      const el = document.getElementById('viz-playback-time');
+      if (el) el.textContent = fmtPlayTime(t, tMax);
+    }, () => setPlayBtn(false));
+    setPlayBtn(true);
+  }
+}
+
+// ── OBB (oriented bounding box) helpers ───────────────────────────
+function obbCorners(lat, lng, headingDeg, length, width, cogToFront, cogToLeft) {
+  const R = 6378100;
+  const latRad = lat * Math.PI / 180;
+  const hRad   = headingDeg * Math.PI / 180;
+  const fwd = cogToFront, bwd = length - cogToFront;
+  const lft = cogToLeft,  rgt = width  - cogToLeft;
+  return [[fwd,-lft],[fwd,rgt],[-bwd,rgt],[-bwd,-lft]].map(([f,r]) => {
+    const N = f*Math.cos(hRad) - r*Math.sin(hRad);
+    const E = f*Math.sin(hRad) + r*Math.cos(hRad);
+    return [lat + N/R*(180/Math.PI), lng + E/(R*Math.cos(latRad))*(180/Math.PI)];
+  });
+}
+function actorDims(actorType) {
+  const t = actorTypeList.find(t => t.id === Number(actorType));
+  return t ? t.dimensions : [1.0, 1.0];
+}
+function makeObbPoly(map, lat, lng, hdg, len, wid, cogF, cogL, color, opts) {
+  return L.polygon(obbCorners(lat,lng,hdg,len,wid,cogF,cogL),
+    Object.assign({color, weight:2, fillColor:color, fillOpacity:0.35}, opts||{})).addTo(map);
+}
+function updateObb(poly, lat, lng, hdg, len, wid, cogF, cogL) {
+  poly.setLatLngs(obbCorners(lat,lng,hdg,len,wid,cogF,cogL));
+}
+
+// ── Shared tile-layer helper ──────────────────────────────────────
+function addTileLayers(map) {
+  const esri = L.tileLayer(
+    'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    { attribution:'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community',
+      maxNativeZoom:19, maxZoom:22 }
+  ).addTo(map);
+  const osm = L.tileLayer(
+    'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    { attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      maxNativeZoom:19, maxZoom:22 }
+  );
+  L.control.layers({'Satellite':esri,'Street Map':osm},{},{position:'topright'}).addTo(map);
+}
+
+// ── Visualisation (map + charts, synced) ──────────────────────────
+let mapLayers = [];
+function clearMapLayers() { mapLayers.forEach(l => l.remove()); mapLayers = []; }
+
+function initMainMap() {
+  if (mapInstance) return;
+  mapInstance = L.map('map', { center:[1.354,103.69], zoom:16 });
+  addTileLayers(mapInstance);
+}
+
+function renderVisualisation() {
+  if (!evalResult) return;
+  document.getElementById('viz-placeholder').classList.add('hidden');
+  document.getElementById('viz-content').classList.remove('hidden');
+
+  const tArr = evalResult?.vut?.t;
+  const tMax = tArr?.length ? tArr[tArr.length - 1] : 0;
+  const vizTimeEl = document.getElementById('viz-playback-time');
+  if (vizTimeEl) vizTimeEl.textContent = `0.0 s / ${tMax.toFixed(1)} s`;
+
+  initMainMap();
+  clearMapLayers();
+  if (vutScrubMarker) { vutScrubMarker.remove(); vutScrubMarker = null; }
+  actorScrubMarkers.forEach(m => m && m.remove()); actorScrubMarkers = [];
+
+  const vut    = evalResult.vut;
+  const actors = evalResult.actors || [];
+  const legend = document.getElementById('viz-legend');
+  legend.innerHTML = '';
+
+  const vCogF = vutConfig.cog_to_front, vCogL = vutConfig.cog_to_left;
+  const vLen  = vutConfig.length,        vWid  = vutConfig.width;
+
+  if (vut.lat && vut.lat.length) {
+    const lls = vut.lat.map((lat, i) => [lat, vut.lng[i]]);
+    const poly = L.polyline(lls, { color:'#4f8ef7', weight:2, opacity:.8 }).addTo(mapInstance);
+    const h0 = (vut.heading||[])[0]||0, hN = (vut.heading||[])[vut.heading.length-1]||0;
+    mapLayers.push(poly,
+      makeObbPoly(mapInstance, lls[0][0], lls[0][1], h0, vLen, vWid, vCogF, vCogL, '#4f8ef7', {fillOpacity:0.5}).bindPopup('VUT Start'),
+      makeObbPoly(mapInstance, lls[lls.length-1][0], lls[lls.length-1][1], hN, vLen, vWid, vCogF, vCogL, '#4f8ef7', {fillOpacity:0.2, dashArray:'4 3'}).bindPopup('VUT End'));
+    mapInstance.fitBounds(poly.getBounds(), {padding:[30,30], maxZoom:18});
+    mapInstance.once('zoomend', () => mapInstance.setZoom(mapInstance.getZoom() + 1));
+    legend.innerHTML += legendItem('#4f8ef7','VUT');
+    vutScrubMarker = makeObbPoly(mapInstance, lls[0][0], lls[0][1], h0, vLen, vWid, vCogF, vCogL, '#fff', {fillColor:'#4f8ef7', fillOpacity:0.7, weight:2});
+  }
+
+  actors.forEach((actor, i) => {
+    const color = ACTOR_COLORS[i % ACTOR_COLORS.length];
+    const traj  = actor.trajectory || {};
+    if (traj.lat && traj.lat.length) {
+      const lls = traj.lat.map((lat, j) => [lat, traj.lng[j]]);
+      const filtered = lls.filter((ll, j) => j === 0 || ll[0] !== lls[j-1][0] || ll[1] !== lls[j-1][1]);
+      const [aLen, aWid] = actorDims(actor.actor_type);
+      const aCogF = aLen/2, aCogL = aWid/2;
+      const ah0 = (traj.heading||[])[0]||0, ahN = (traj.heading||[])[traj.heading.length-1]||0;
+      if (filtered.length > 1) mapLayers.push(L.polyline(filtered, {color, weight:2, opacity:.85, dashArray:'6 4'}).addTo(mapInstance));
+      mapLayers.push(
+        makeObbPoly(mapInstance, lls[lls.length-1][0], lls[lls.length-1][1], ahN, aLen, aWid, aCogF, aCogL, color, {fillOpacity:0.2, dashArray:'4 3'})
+          .bindPopup(`Actor: ${actor.actor_id}<br>Type: ${actor.actor_type_name}`));
+      actorScrubMarkers.push(makeObbPoly(mapInstance, lls[0][0], lls[0][1], ah0, aLen, aWid, aCogF, aCogL, '#fff', {fillColor:color, fillOpacity:0.7, weight:2}));
+    } else {
+      actorScrubMarkers.push(null);
+    }
+    legend.innerHTML += legendItem(color, `${actor.actor_id} (${actor.actor_type_name})`);
+  });
+
+  renderVizCharts(vut, actors);
+}
+
+function renderVizCharts(vut, actors) {
+  VizScrub.reset();
+  const t = vut.t;
+
+  // Velocity
+  destroyChart('vel-chart');
+  chartInstances['vel-chart'] = new Chart(document.getElementById('vel-chart').getContext('2d'), {
+    type:'line', data:{labels:t, datasets:[
+      { label:'VUT (km/h)', data:vut.vel_kmh, borderColor:'#4f8ef7', backgroundColor:'rgba(79,142,247,.1)', fill:true, borderWidth:2, pointRadius:0, tension:.3 },
+    ]},
+    options:chartOpts('Time (s)','km/h',''),
+  });
+  VizScrub.register('vel-chart','vel-xhair');
+
+  // Acceleration
+  destroyChart('acc-chart');
+  chartInstances['acc-chart'] = new Chart(document.getElementById('acc-chart').getContext('2d'), {
+    type:'line', data:{labels:t, datasets:[
+      {label:'Lat (m/s²)', data:vut.accl_lat, borderColor:'#fb923c', backgroundColor:'transparent', borderWidth:1.5, pointRadius:0, tension:.3},
+      {label:'Lng (m/s²)', data:vut.accl_lng, borderColor:'#a78bfa', backgroundColor:'transparent', borderWidth:1.5, pointRadius:0, tension:.3},
+    ]}, options:chartOpts('Time (s)','m/s²',''),
+  });
+  VizScrub.register('acc-chart','acc-xhair');
+
+  // Braking & Throttle
+  destroyChart('brake-chart');
+  chartInstances['brake-chart'] = new Chart(document.getElementById('brake-chart').getContext('2d'), {
+    type:'line', data:{labels:t, datasets:[
+      {label:'Braking (%)',  data:vut.braking_level,  borderColor:'#ef4444', backgroundColor:'transparent', borderWidth:2, pointRadius:0, tension:.3},
+      {label:'Throttle (%)', data:vut.throttle_level, borderColor:'#22c55e', backgroundColor:'transparent', borderWidth:2, pointRadius:0, tension:.3},
+    ]}, options:chartOpts('Time (s)','%',''),
+  });
+  VizScrub.register('brake-chart','brake-xhair');
+
+  const toXY    = (tarr, varr) => tarr.map((ti, i) => ({x: ti, y: varr[i]}));
+  const safeArr = (field) => (Array.isArray(vut[field]) && vut[field].length === t.length)
+    ? vut[field] : t.map(() => 0);
+
+  // Indicators & Hazard
+  const indOpts = JSON.parse(JSON.stringify(chartOpts('Time (s)','State','')));
+  indOpts.scales.y.min = -0.1; indOpts.scales.y.max = 1.1;
+  indOpts.scales.y.ticks = { color:'#8892a4', stepSize:1 };
+  destroyChart('ind-chart');
+  chartInstances['ind-chart'] = new Chart(document.getElementById('ind-chart').getContext('2d'), {
+    type:'line', data:{datasets:[
+      {label:'Left Indicator',  data:toXY(t, safeArr('ind_left')),   borderColor:'#facc15', backgroundColor:'transparent', borderWidth:2, pointRadius:0, stepped:true},
+      {label:'Right Indicator', data:toXY(t, safeArr('ind_right')),  borderColor:'#fb923c', backgroundColor:'transparent', borderWidth:2, pointRadius:0, stepped:true},
+      {label:'Hazard',          data:toXY(t, safeArr('ind_hazard')), borderColor:'#f87171', backgroundColor:'transparent', borderWidth:2, pointRadius:0, stepped:true},
+    ]}, options:indOpts,
+  });
+  VizScrub.register('ind-chart','ind-xhair');
+
+  // Reverse & Brake Light
+  const revOpts = JSON.parse(JSON.stringify(chartOpts('Time (s)','State','')));
+  revOpts.scales.y.min = -0.1; revOpts.scales.y.max = 1.1;
+  revOpts.scales.y.ticks = { color:'#8892a4', stepSize:1 };
+  destroyChart('revbrk-chart');
+  chartInstances['revbrk-chart'] = new Chart(document.getElementById('revbrk-chart').getContext('2d'), {
+    type:'line', data:{datasets:[
+      {label:'Reverse',     data:toXY(t, safeArr('ind_reverse')), borderColor:'#a78bfa', backgroundColor:'transparent', borderWidth:2, pointRadius:0, stepped:true},
+      {label:'Brake Light', data:toXY(t, safeArr('ind_braking')), borderColor:'#ef4444', backgroundColor:'transparent', borderWidth:2, pointRadius:0, stepped:true},
+    ]}, options:revOpts,
+  });
+  VizScrub.register('revbrk-chart','revbrk-xhair');
+}
+
+// ── Helpers ───────────────────────────────────────────────────────
+function showLoading(on) { document.getElementById('loading').classList.toggle('active', on); }
+function showError(msg)  { const el = document.getElementById('error-banner'); el.textContent = msg; el.classList.add('active'); }
+function hideError()     { document.getElementById('error-banner').classList.remove('active'); }
+function legendItem(color, label) {
+  return `<div class="legend-item"><div class="legend-dot" style="background:${color}"></div><span>${label}</span></div>`;
+}
+function destroyChart(id) { if (chartInstances[id]) { chartInstances[id].destroy(); delete chartInstances[id]; } }
+function chartOpts(xLabel, yLabel, title) {
+  return {
+    responsive:true, maintainAspectRatio:false, animation:false,
+    plugins:{
+      legend:{labels:{color:'#8892a4',boxWidth:14,font:{size:11}}},
+      title:{display:!!title,text:title,color:'#8892a4',font:{size:12}},
+      tooltip:{mode:'index',intersect:false,backgroundColor:'#1a1d27',borderColor:'#2e3244',borderWidth:1,titleColor:'#e2e8f0',bodyColor:'#8892a4'},
+    },
+    scales:{
+      x:{type:'linear',title:{display:true,text:xLabel,color:'#8892a4',font:{size:11}},ticks:{color:'#8892a4',maxTicksLimit:10},grid:{color:'rgba(46,50,68,.5)'}},
+      y:{title:{display:true,text:yLabel,color:'#8892a4',font:{size:11}},ticks:{color:'#8892a4'},grid:{color:'rgba(46,50,68,.5)'}},
+    },
+    interaction:{mode:'nearest',axis:'x',intersect:false},
+  };
+}
+</script>
+<footer>
+  <a href="https://cetran.sg" target="_blank" rel="noopener">CETRAN</a>
+  &nbsp;(Centre of Excellence for Testing &amp; Research of Autonomous Vehicles
+  &nbsp;–&nbsp;
+  <a href="https://www.ntu.edu.sg" target="_blank" rel="noopener">Nanyang Technological University)</a>
+</footer>
+</body>
+</html>
