@@ -6,6 +6,8 @@ The tool validates files in the **[ViSTA (Virtual Simulation Testing and Assessm
 
 This tool currently covers **rigid body Class 3 and Class 4** autonomous vehicles **only**.
 
+<img width="1710" height="981" alt="Screenshot 2026-02-28 at 22 15 10" src="https://github.com/user-attachments/assets/03aa8ed4-2cbe-434a-aa41-297f04f94c15" />
+
 ---
 
 ## Features
@@ -233,4 +235,5 @@ If you would like to cite the ViSTA data format, please cite from its original s
   url       = {https://doi.org/10.21979/N9/HPLB28}
 }
 ```
+
 
