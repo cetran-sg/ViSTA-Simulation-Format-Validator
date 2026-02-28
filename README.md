@@ -1,12 +1,10 @@
 # ViSTA Simulation Format Validator
 
-A local web tool for Autonomous Vehicle developers preparing for the **Milestone 2 simulation assessment**, part of the LTA Developmental AV Solutions Assessment Track (Public Roads). Upload your simulation output as a ZIP archive and get an instant format validation report before submission.
+A local web tool for AV developers preparing for **CETRAN M2 assessment**. Upload your simulation output as a ZIP archive and get an instant format validation report — before submission.
 
-The tool validates files in the **[ViSTA (Virtual Simulation Testing and Assessment) format](https://github.com/cetran-sg/ViSTA-data-format)**, which is used in the Milestone 2 simulation evaluation. This version validates the **ground truth VUT and actor files** (`VUT_status.csv` and `Environment_actors_true.csv`) and visualises vehicle bounding boxes on an interactive map. Future versions will extend validation to simulation results containing perception output and traffic light output.
+The tool validates files in the **[ViSTA (Virtual Simulation Testing and Assessment) format](https://github.com/cetran-sg/ViSTA-data-format)**, which is used in Milestone 2 simulation evaluation. This version validates the **ground truth VUT and actor files** (`VUT_status.csv` and `Environment_actors_true.csv`) and visualises vehicle bounding boxes on an interactive map. Future versions will extend validation to simulation results containing perception output and traffic light output.
 
-This tool currently covers **rigid body Class 3 and Class 4** autonomous vehicles **only**.
-
-<img width="1710" height="981" alt="Screenshot 2026-02-28 at 22 15 10" src="https://github.com/user-attachments/assets/03aa8ed4-2cbe-434a-aa41-297f04f94c15" />
+This tool covers **Class 3 and Class 4 rigid-body autonomous vehicles** only.
 
 ---
 
@@ -14,8 +12,8 @@ This tool currently covers **rigid body Class 3 and Class 4** autonomous vehicle
 
 - **Batch upload** — drop a ZIP archive containing multiple test cases and runs; all files are validated in one step
 - **Instant feedback** — green / yellow / red banner shows whether your data is ready for submission, with per-run error and warning details
-- **Trajectory visualisation** — interactive map with animated timeline scrubbing along with velocity, acceleration, braking/throttle, indicator and reverse/brake time-series charts
-- **Configurable VUT bounding box** — set vehicle length, width and independent CoG offsets so the map marker matches your vehicle geometry
+- **Trajectory visualisation** — interactive map with animated timeline scrubbing, plus velocity, acceleration, braking/throttle, indicator, and reverse/brake time-series charts
+- **Configurable VUT bounding box** — set vehicle length, width, and independent CoG offsets so the map marker matches your vehicle geometry
 - **No internet connection required** — runs entirely on your local machine
 
 ---
@@ -127,7 +125,7 @@ archive.zip
 | `Step_number` | Integer simulation step index |
 | `VUT_pos_lat` | VUT latitude (°); valid range −90 to 90 |
 | `VUT_pos_lng` | VUT longitude (°); valid range −180 to 360 |
-| `VUT_heading` | VUT heading (°); valid range 0 to 360 |
+| `VUT_heading` | VUT heading (°); valid range −360 to 360 |
 | `VUT_vel_abs` | VUT absolute speed (m/s); must be non-negative |
 
 Additional columns (e.g. accelerations, braking level, indicators) are passed through to the visualisation charts if present but are not required for validation to pass.
@@ -142,7 +140,7 @@ Additional columns (e.g. accelerations, braking level, indicators) are passed th
 | `Actor_type` | Integer actor type code (see table below) |
 | `Actor_pos_true_lat` | Actor latitude (°); valid range −90 to 90 |
 | `Actor_pos_true_lng` | Actor longitude (°); valid range −180 to 360 |
-| `Actor_heading_true` | Actor heading (°); valid range 0 to 360 |
+| `Actor_heading_true` | Actor heading (°); valid range −360 to 360 |
 
 ### Actor type codes
 
@@ -235,5 +233,3 @@ If you would like to cite the ViSTA data format, please cite from its original s
   url       = {https://doi.org/10.21979/N9/HPLB28}
 }
 ```
-
-

@@ -58,10 +58,10 @@ def validate_vut(df: pd.DataFrame) -> tuple[list[str], list[str]]:
     if len(lng) > 0 and ((lng < -180) | (lng > 360)).any():
         errors.append("VUT_pos_lng contains values outside the valid range (-180 to 360)")
 
-    # VUT_heading in range 0 to 360
+    # VUT_heading in range -360 to 360
     heading = df["VUT_heading"].dropna()
-    if len(heading) > 0 and ((heading < 0) | (heading > 360)).any():
-        errors.append("VUT_heading contains values outside the valid range (0 to 360)")
+    if len(heading) > 0 and ((heading < -360) | (heading > 360)).any():
+        errors.append("VUT_heading contains values outside the valid range (-360 to 360)")
 
     # VUT_vel_abs non-negative
     vel = df["VUT_vel_abs"].dropna()
@@ -110,10 +110,10 @@ def validate_actors(df: pd.DataFrame) -> tuple[list[str], list[str]]:
     if len(lng) > 0 and ((lng < -180) | (lng > 360)).any():
         errors.append("Actor_pos_true_lng contains values outside the valid range (-180 to 360)")
 
-    # Actor_heading_true in range 0 to 360
+    # Actor_heading_true in range -360 to 360
     heading = df["Actor_heading_true"].dropna()
-    if len(heading) > 0 and ((heading < 0) | (heading > 360)).any():
-        errors.append("Actor_heading_true contains values outside the valid range (0 to 360)")
+    if len(heading) > 0 and ((heading < -360) | (heading > 360)).any():
+        errors.append("Actor_heading_true contains values outside the valid range (-360 to 360)")
 
     # Actor_type must be integer-valued
     try:

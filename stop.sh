@@ -1,5 +1,5 @@
 #!/bin/bash
-# Stop any process(es) listening on port 8000.
+# Stop any process(es) listening on port 8001.
 # Works on macOS and Linux.
 cd "$(dirname "$0")"
 
