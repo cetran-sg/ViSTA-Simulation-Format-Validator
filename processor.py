@@ -53,7 +53,10 @@ def load_vut(file_bytes: bytes) -> pd.DataFrame:
     df = _read_tabular(file_bytes)
     df.columns = [str(c).strip() for c in df.columns]
     df = df.loc[:, ~df.columns.str.startswith("Unnamed")]
-    df["t"] = df["Time"] - df["Time"].iloc[0]
+    if "Time" in df.columns and len(df) > 0:
+        df["t"] = df["Time"] - df["Time"].iloc[0]
+    else:
+        df["t"] = 0.0
     if "VUT_vel_abs" in df.columns:
         df["VUT_vel_ms"]  = df["VUT_vel_abs"].fillna(0.0)
         df["VUT_vel_kmh"] = df["VUT_vel_ms"] * 3.6
@@ -71,7 +74,9 @@ def load_actors(file_bytes: bytes) -> pd.DataFrame:
     df = _read_tabular(file_bytes)
     df.columns = [str(c).strip() for c in df.columns]
     df = df.loc[:, ~df.columns.str.startswith("Unnamed")]
-    if "Actor_vel_abs" in df.columns and "Actor_vel_lat" in df.columns:
+    if ("Actor_vel_abs" in df.columns
+            and "Actor_vel_lat" in df.columns
+            and "Actor_vel_lng" in df.columns):
         zero_mask = df["Actor_vel_abs"].fillna(0) == 0
         df.loc[zero_mask, "Actor_vel_abs"] = np.sqrt(
             df.loc[zero_mask, "Actor_vel_lat"].fillna(0) ** 2
@@ -99,25 +104,6 @@ def extract_actors(file_bytes: bytes) -> list[dict]:
         })
     return result
 
-
-def merge_data(vut_df: pd.DataFrame, actor_df: pd.DataFrame) -> dict[str, pd.DataFrame]:
-    """Join VUT telemetry with each actor's rows on Step_number.
-
-    Kept for trajectory alignment use cases. Returns a dict mapping
-    str(actor_id) → merged DataFrame.
-    """
-    merged = {}
-    for aid in actor_df["Actor_Id"].unique():
-        a      = actor_df[actor_df["Actor_Id"] == aid].copy().set_index("Step_number")
-        joined = vut_df.copy().set_index("Step_number")
-        joined = joined.join(
-            a[["Actor_type", "Actor_pos_true_lat", "Actor_pos_true_lng",
-               "Actor_heading_true", "Actor_vel_abs"]],
-            how="left",
-        ).reset_index()
-        valid = joined["Actor_pos_true_lat"].notna()
-        merged[str(aid)] = joined[valid].copy()
-    return merged
 
 
 # ---------------------------------------------------------------------------
@@ -193,13 +179,27 @@ def evaluate(
         all_warnings.extend(actor_warnings)
 
         if "Actor_Id" in actor_df.columns:
+            # Build a step → t lookup once (O(n)) to avoid O(n²) per-actor scans.
+            step_to_t: dict = (
+                dict(zip(vut_df["Step_number"], vut_df["t"]))
+                if "Step_number" in vut_df.columns
+                else {}
+            )
             for aid in actor_df["Actor_Id"].unique():
                 a_rows = actor_df[actor_df["Actor_Id"] == aid]
                 atype  = int(a_rows["Actor_type"].iloc[0]) if "Actor_type" in a_rows.columns else 0
 
                 trajectory: dict[str, Any] = {
-                    "lat": [round(float(v), 6) for v in a_rows["Actor_pos_true_lat"]],
-                    "lng": [round(float(v), 6) for v in a_rows["Actor_pos_true_lng"]],
+                    "lat": [
+                        round(float(v), 6)
+                        if v is not None and not (isinstance(v, float) and math.isnan(v)) else 0.0
+                        for v in a_rows["Actor_pos_true_lat"]
+                    ],
+                    "lng": [
+                        round(float(v), 6)
+                        if v is not None and not (isinstance(v, float) and math.isnan(v)) else 0.0
+                        for v in a_rows["Actor_pos_true_lng"]
+                    ],
                     "heading": (
                         [
                             round(float(v), 4)
@@ -211,8 +211,7 @@ def evaluate(
                     ),
                     # Map each actor Step_number to the VUT's relative time t
                     "t": [
-                        round(float(vut_df.loc[vut_df["Step_number"] == s, "t"].values[0]), 4)
-                        if s in vut_df["Step_number"].values else 0.0
+                        round(float(step_to_t[s]), 4) if s in step_to_t else 0.0
                         for s in a_rows["Step_number"]
                     ],
                 }

@@ -50,17 +50,23 @@ def validate_vut(df: pd.DataFrame) -> tuple[list[str], list[str]]:
 
     # VUT_pos_lat in range -90 to 90
     lat = df["VUT_pos_lat"].dropna()
-    if len(lat) > 0 and ((lat < -90) | (lat > 90)).any():
+    if len(lat) == 0 and len(df) > 0:
+        errors.append("VUT_pos_lat contains no valid (non-NaN) values")
+    elif len(lat) > 0 and ((lat < -90) | (lat > 90)).any():
         errors.append("VUT_pos_lat contains values outside the valid range (-90 to 90)")
 
     # VUT_pos_lng in range -180 to 360
     lng = df["VUT_pos_lng"].dropna()
-    if len(lng) > 0 and ((lng < -180) | (lng > 360)).any():
+    if len(lng) == 0 and len(df) > 0:
+        errors.append("VUT_pos_lng contains no valid (non-NaN) values")
+    elif len(lng) > 0 and ((lng < -180) | (lng > 360)).any():
         errors.append("VUT_pos_lng contains values outside the valid range (-180 to 360)")
 
     # VUT_heading in range -360 to 360
     heading = df["VUT_heading"].dropna()
-    if len(heading) > 0 and ((heading < -360) | (heading > 360)).any():
+    if len(heading) == 0 and len(df) > 0:
+        errors.append("VUT_heading contains no valid (non-NaN) values")
+    elif len(heading) > 0 and ((heading < -360) | (heading > 360)).any():
         errors.append("VUT_heading contains values outside the valid range (-360 to 360)")
 
     # VUT_vel_abs non-negative
@@ -72,6 +78,10 @@ def validate_vut(df: pd.DataFrame) -> tuple[list[str], list[str]]:
     time_vals = df["Time"].dropna()
     if len(time_vals) > 1 and (time_vals.diff().dropna() < 0).any():
         errors.append("Time column is not monotonically non-decreasing")
+
+    # Step_number uniqueness
+    if df["Step_number"].duplicated().any():
+        errors.append("Step_number contains duplicate values")
 
     # Warn on NaN values in position/heading columns
     for col in ["VUT_pos_lat", "VUT_pos_lng", "VUT_heading"]:

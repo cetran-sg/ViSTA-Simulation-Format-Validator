@@ -35,18 +35,28 @@ import re
 import zipfile
 from pathlib import Path
 
+import anyio
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 import config
-from processor import evaluate, extract_actors, load_vut, load_actors
+from processor import evaluate, load_vut, load_actors
 from validator import validate_vut, validate_actors
 
 # ---------------------------------------------------------------------------
 # Batch store — module-level singleton, lives for the lifetime of the process.
 # ---------------------------------------------------------------------------
 _batch_store: dict[str, dict[str, dict]] = {}
+
+# Maximum size of a single upload to prevent memory exhaustion.
+_MAX_UPLOAD_BYTES = 256 * 1024 * 1024  # 256 MB
+
+
+def _run_sort_key(run_id: str) -> int:
+    """Numeric sort key for run IDs like 'r0', 'r1', 'r10'."""
+    digits = re.sub(r"\D", "", run_id)
+    return int(digits) if digits else 0
 
 # ---------------------------------------------------------------------------
 # Application instance + static file mounting.
@@ -64,7 +74,7 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 @app.get("/", response_class=HTMLResponse)
 async def index():
     """Serve the SPA entry point."""
-    return (STATIC_DIR / "index.html").read_text()
+    return await anyio.Path(STATIC_DIR / "index.html").read_text()
 
 
 @app.get("/api/actor-types")
@@ -117,14 +127,18 @@ async def batch_upload(zip_file: UploadFile = File(..., description="ZIP archive
     global _batch_store
     _batch_store = {}
 
+    raw = await zip_file.read(_MAX_UPLOAD_BYTES + 1)
+    if len(raw) > _MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Upload exceeds {_MAX_UPLOAD_BYTES // (1024 * 1024)} MB limit",
+        )
     try:
-        raw = await zip_file.read()
-        zf  = zipfile.ZipFile(io.BytesIO(raw))
+        zf_raw = zipfile.ZipFile(io.BytesIO(raw))
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Cannot open ZIP: {exc}")
 
     run_pattern = re.compile(r"^(.+)_(r\d+)$")
-    names = zf.namelist()
 
     VUT_NAMES   = {"VUT_status.xlsx",              "VUT_status.csv"}
     ACTOR_NAMES = {"Environment_actors_true.xlsx", "Environment_actors_true.csv"}
@@ -137,78 +151,80 @@ async def batch_upload(zip_file: UploadFile = File(..., description="ZIP archive
             and not p.name.startswith("._")
         )
 
-    # First pass: build a lookup from parent-dir-name → actor file bytes.
-    actor_index: dict[str, bytes] = {}
-    for name in names:
-        if _is_real_file(name, ACTOR_NAMES):
+    with zf_raw as zf:
+        names = zf.namelist()
+
+        # First pass: build a lookup from parent-dir-name → actor file bytes.
+        actor_index: dict[str, bytes] = {}
+        for name in names:
+            if _is_real_file(name, ACTOR_NAMES):
+                parent = Path(name).parent.name
+                actor_index[parent] = zf.read(name)
+
+        vut_count   = 0
+        valid_runs  = 0
+        invalid_runs = 0
+        validation_details: dict[str, dict[str, dict]] = {}
+
+        # Second pass: process each VUT file.
+        for name in names:
+            if not _is_real_file(name, VUT_NAMES):
+                continue
             parent = Path(name).parent.name
-            actor_index[parent] = zf.read(name)
+            m = run_pattern.match(parent)
+            if not m:
+                continue
+            tc_id  = m.group(1)
+            run_id = m.group(2)
 
-    vut_count   = 0
-    valid_runs  = 0
-    invalid_runs = 0
-    validation_details: dict[str, dict[str, dict]] = {}
+            vut_bytes   = zf.read(name)
+            actor_bytes = actor_index.get(parent)
 
-    # Second pass: process each VUT file.
-    for name in names:
-        if not _is_real_file(name, VUT_NAMES):
-            continue
-        parent = Path(name).parent.name
-        m = run_pattern.match(parent)
-        if not m:
-            continue
-        tc_id  = m.group(1)
-        run_id = m.group(2)
-
-        vut_bytes   = zf.read(name)
-        actor_bytes = actor_index.get(parent)
-
-        # Treat header-only actor files as absent.
-        if actor_bytes is not None:
-            try:
-                if not extract_actors(actor_bytes):
-                    actor_bytes = None
-            except Exception:
-                actor_bytes = None
-
-        # Validate at index time.
-        errors:   list[str] = []
-        warnings: list[str] = []
-        try:
-            vut_df = load_vut(vut_bytes)
-            ve, vw = validate_vut(vut_df)
-            errors.extend(ve)
-            warnings.extend(vw)
+            # Parse actor file once; treat header-only files as absent.
+            cached_actor_df = None
             if actor_bytes is not None:
-                actor_df = load_actors(actor_bytes)
-                ae, aw = validate_actors(actor_df)
-                errors.extend(ae)
-                warnings.extend(aw)
-        except Exception as exc:
-            errors.append(f"Failed to parse file: {exc}")
+                try:
+                    cached_actor_df = load_actors(actor_bytes)
+                    if "Actor_Id" not in cached_actor_df.columns or cached_actor_df.empty:
+                        actor_bytes = None
+                        cached_actor_df = None
+                except Exception:
+                    actor_bytes = None
+                    cached_actor_df = None
 
-        run_validation = {
-            "valid":    len(errors) == 0,
-            "errors":   errors,
-            "warnings": warnings,
-        }
+            # Validate at index time.
+            errors:   list[str] = []
+            warnings: list[str] = []
+            try:
+                vut_df = load_vut(vut_bytes)
+                ve, vw = validate_vut(vut_df)
+                errors.extend(ve)
+                warnings.extend(vw)
+                if cached_actor_df is not None:
+                    ae, aw = validate_actors(cached_actor_df)
+                    errors.extend(ae)
+                    warnings.extend(aw)
+            except Exception as exc:
+                errors.append(f"Failed to parse file: {exc}")
 
-        if run_validation["valid"]:
-            valid_runs += 1
-        else:
-            invalid_runs += 1
+            run_validation = {
+                "valid":    len(errors) == 0,
+                "errors":   errors,
+                "warnings": warnings,
+            }
 
-        _batch_store.setdefault(tc_id, {})[run_id] = {
-            "vut":        vut_bytes,
-            "actor":      actor_bytes,
-            "validation": run_validation,
-        }
-        validation_details.setdefault(tc_id, {})[run_id] = run_validation
-        vut_count += 1
+            if run_validation["valid"]:
+                valid_runs += 1
+            else:
+                invalid_runs += 1
 
-    def _run_sort_key(run_id: str) -> int:
-        digits = re.sub(r"\D", "", run_id)
-        return int(digits) if digits else 0
+            _batch_store.setdefault(tc_id, {})[run_id] = {
+                "vut":        vut_bytes,
+                "actor":      actor_bytes,
+                "validation": run_validation,
+            }
+            validation_details.setdefault(tc_id, {})[run_id] = run_validation
+            vut_count += 1
 
     sorted_details = {
         tc: dict(sorted(runs.items(), key=lambda kv: _run_sort_key(kv[0])))
@@ -273,7 +289,7 @@ async def batch_runs(test_case_id: str):
             "has_actors": r.get("actor") is not None,
             "validation": r.get("validation", {"valid": None, "errors": [], "warnings": []}),
         }
-        for run_id, r in sorted(tc.items())
+        for run_id, r in sorted(tc.items(), key=lambda kv: _run_sort_key(kv[0]))
     ]
     return {"runs": runs}
 

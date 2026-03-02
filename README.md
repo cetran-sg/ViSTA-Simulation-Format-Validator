@@ -125,7 +125,7 @@ archive.zip
 | `Step_number` | Integer simulation step index |
 | `VUT_pos_lat` | VUT latitude (°); valid range −90 to 90 |
 | `VUT_pos_lng` | VUT longitude (°); valid range −180 to 360 |
-| `VUT_heading` | VUT heading (°); valid range -360 to 360 |
+| `VUT_heading` | VUT heading (°); valid range 0 to 360 |
 | `VUT_vel_abs` | VUT absolute speed (m/s); must be non-negative |
 
 Additional columns (e.g. accelerations, braking level, indicators) are passed through to the visualisation charts if present but are not required for validation to pass.
@@ -140,7 +140,7 @@ Additional columns (e.g. accelerations, braking level, indicators) are passed th
 | `Actor_type` | Integer actor type code (see table below) |
 | `Actor_pos_true_lat` | Actor latitude (°); valid range −90 to 90 |
 | `Actor_pos_true_lng` | Actor longitude (°); valid range −180 to 360 |
-| `Actor_heading_true` | Actor heading (°); valid range -360 to 360 |
+| `Actor_heading_true` | Actor heading (°); valid range 0 to 360 |
 
 ### Actor type codes
 

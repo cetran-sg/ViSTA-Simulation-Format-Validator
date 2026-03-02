@@ -427,12 +427,23 @@ function resetVutConfig() {
   document.getElementById('vut-cog-left').value  = vutConfig.cog_to_left;
 }
 
+// ── HTML escaping (prevents XSS when inserting server data into innerHTML) ──
+function escHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 // ── Boot ─────────────────────────────────────────────────────────
 (async () => {
   try {
     const r = await fetch('/api/actor-types');
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const d = await r.json();
-    actorTypeList = d.types;
+    actorTypeList = d.types ?? [];
   } catch(e) { actorTypeList = []; }
 })();
 
@@ -446,7 +457,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     document.querySelector(`[data-panel="${btn.dataset.tab}"]`).classList.add('active');
     if (btn.dataset.tab === 'viz') {
       initVizTcPanel();
-      setTimeout(() => mapInstance && mapInstance.invalidateSize(), 60);
+      requestAnimationFrame(() => requestAnimationFrame(() => mapInstance && mapInstance.invalidateSize()));
     }
   });
 });
@@ -456,7 +467,7 @@ function switchTab(name) {
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.dataset.panel === name));
   if (name === 'viz') {
     initVizTcPanel();
-    setTimeout(() => mapInstance && mapInstance.invalidateSize(), 60);
+    requestAnimationFrame(() => requestAnimationFrame(() => mapInstance && mapInstance.invalidateSize()));
   }
 }
 
@@ -547,16 +558,16 @@ function showValidationBanner(uploadData) {
       const status = runValid ? (runHasWarn ? '⚠ Warning' : '✓ Valid') : '✗ Invalid';
       const color  = runValid ? (runHasWarn ? 'var(--warn)' : 'var(--pass)') : 'var(--fail)';
       let items = '';
-      if (v.errors   && v.errors.length)   items += v.errors.map(e   => `<li style="color:var(--fail);margin-bottom:2px;">${e}</li>`).join('');
-      if (v.warnings && v.warnings.length) items += v.warnings.map(w => `<li style="color:var(--warn);margin-bottom:2px;">${w}</li>`).join('');
+      if (v.errors   && v.errors.length)   items += v.errors.map(e   => `<li style="color:var(--fail);margin-bottom:2px;">${escHtml(e)}</li>`).join('');
+      if (v.warnings && v.warnings.length) items += v.warnings.map(w => `<li style="color:var(--warn);margin-bottom:2px;">${escHtml(w)}</li>`).join('');
       return `<div style="margin-left:16px;margin-bottom:8px;">
-        <span style="color:${color};font-weight:600;">${runId}</span>
+        <span style="color:${color};font-weight:600;">${escHtml(runId)}</span>
         <span style="color:var(--muted);margin-left:8px;font-size:12px;">${status}</span>
         ${items ? `<ul style="margin:4px 0 0 20px;font-size:12px;list-style:disc;">${items}</ul>` : ''}
       </div>`;
     }).join('');
     detailsHtml += `<details style="margin-bottom:8px;">
-      <summary style="cursor:pointer;font-weight:600;padding:4px 0;user-select:none;">${tcId}</summary>
+      <summary style="cursor:pointer;font-weight:600;padding:4px 0;user-select:none;">${escHtml(tcId)}</summary>
       <div style="margin-top:8px;">${runsHtml}</div>
     </details>`;
   }
@@ -612,7 +623,10 @@ async function refreshBatchTcDropdown(selId) {
     const r = await fetch('/api/batch/test-cases');
     const d = await r.json();
     (d.test_cases || []).forEach(tc => {
-      sel.innerHTML += `<option value="${tc.id}">${tc.id}</option>`;
+      const opt = document.createElement('option');
+      opt.value = tc.id;
+      opt.textContent = tc.id;
+      sel.appendChild(opt);
     });
     if (cur) sel.value = cur;
   } catch(e) {}
@@ -667,14 +681,15 @@ async function onVizTcChange() {
 async function evalVizAllRuns() {
   const tc = document.getElementById('viz-tc').value || vizActiveTc;
   if (!tc) { alert('Select a test case first.'); return; }
-  const r = await fetch(`/api/batch/runs/${encodeURIComponent(tc)}`);
-  const d = await r.json();
-  const runs = d.runs || [];
-  if (!runs.length) { alert('No runs found for this test case.'); return; }
-
   showLoading(true);
   vizTcResults = {};
   try {
+    const r = await fetch(`/api/batch/runs/${encodeURIComponent(tc)}`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const d = await r.json();
+    const runs = d.runs || [];
+    if (!runs.length) { showLoading(false); alert('No runs found for this test case.'); return; }
+
     await Promise.all(runs.map(async run => {
       try {
         const fd = new FormData();
@@ -690,6 +705,8 @@ async function evalVizAllRuns() {
     renderAllRunsResults();
     const first = runs.find(run => vizTcResults[run.id] !== null && vizTcResults[run.id] !== undefined);
     if (first) selectVizRun(first.id);
+  } catch(e) {
+    showError('Failed to load runs: ' + e.message);
   } finally {
     showLoading(false);
   }
@@ -723,7 +740,7 @@ function renderVizRunList(runs, results) {
     btn.id = `viz-run-btn-${CSS.escape(run.id)}`;
     btn.className = 'btn btn-secondary btn-sm';
     btn.style.cssText = 'border:1px solid var(--border);transition:border-color .15s,color .15s;';
-    btn.innerHTML = run.id + badgeHtml;
+    btn.innerHTML = escHtml(run.id) + badgeHtml;
     if (res && res !== null) {
       btn.onclick = () => selectVizRun(run.id);
     } else {
@@ -958,8 +975,8 @@ function obbCorners(lat, lng, headingDeg, length, width, cogToFront, cogToLeft) 
   });
 }
 function actorDims(actorType) {
-  const t = actorTypeList.find(t => t.id === Number(actorType));
-  return t ? t.dimensions : [1.0, 1.0];
+  const entry = actorTypeList.find(e => e.id === Number(actorType));
+  return entry ? entry.dimensions : [1.0, 1.0];
 }
 function makeObbPoly(map, lat, lng, hdg, len, wid, cogF, cogL, color, opts) {
   return L.polygon(obbCorners(lat,lng,hdg,len,wid,cogF,cogL),
@@ -1042,12 +1059,12 @@ function renderVisualisation() {
       if (filtered.length > 1) mapLayers.push(L.polyline(filtered, {color, weight:2, opacity:.85, dashArray:'6 4'}).addTo(mapInstance));
       mapLayers.push(
         makeObbPoly(mapInstance, lls[lls.length-1][0], lls[lls.length-1][1], ahN, aLen, aWid, aCogF, aCogL, color, {fillOpacity:0.2, dashArray:'4 3'})
-          .bindPopup(`Actor: ${actor.actor_id}<br>Type: ${actor.actor_type_name}`));
+          .bindPopup(`Actor: ${escHtml(actor.actor_id)}<br>Type: ${escHtml(actor.actor_type_name)}`));
       actorScrubMarkers.push(makeObbPoly(mapInstance, lls[0][0], lls[0][1], ah0, aLen, aWid, aCogF, aCogL, '#fff', {fillColor:color, fillOpacity:0.7, weight:2}));
     } else {
       actorScrubMarkers.push(null);
     }
-    legend.innerHTML += legendItem(color, `${actor.actor_id} (${actor.actor_type_name})`);
+    legend.innerHTML += legendItem(color, `${escHtml(actor.actor_id)} (${escHtml(actor.actor_type_name)})`);
   });
 
   renderVizCharts(vut, actors);
