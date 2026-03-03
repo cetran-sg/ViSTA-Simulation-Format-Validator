@@ -12,4 +12,4 @@ if ! python3 -m uvicorn --version >/dev/null 2>&1; then
   exit 1
 fi
 
-exec python3 -m uvicorn main:app --port 8000
+exec python3 -m uvicorn main:app --host 0.0.0.0 --port 8000
