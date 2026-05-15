@@ -31,26 +31,40 @@ Batch store structure::
 from __future__ import annotations
 
 import io
+import logging
 import re
 import zipfile
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import anyio
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.datastructures import MutableHeaders
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 import config
-from processor import evaluate, load_vut, load_actors
-from validator import validate_vut, validate_actors
+from processor import evaluate, load_vut, load_actors, _vut_has_trailer_data
+from validator import validate_vut, validate_actors, validate_trailer_vut
 
-# ---------------------------------------------------------------------------
-# Batch store — module-level singleton, lives for the lifetime of the process.
-# ---------------------------------------------------------------------------
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s — %(message)s",
+)
+logger = logging.getLogger(__name__)
+
+# In-memory batch store; reset on each upload.
 _batch_store: dict[str, dict[str, dict]] = {}
 
-# Maximum size of a single upload to prevent memory exhaustion.
-_MAX_UPLOAD_BYTES = 256 * 1024 * 1024  # 256 MB
+# Vehicle mode, set at upload time.
+# 'rigid'       — validates VUT columns only.
+# 'articulated' — also validates Trailer_* columns and extracts trailer timeseries.
+_vehicle_mode: str = "rigid"
+
+_MAX_UPLOAD_BYTES = 256 * 1024 * 1024  # 256 MB hard limit per upload
+
+STATIC_DIR = Path(__file__).parent / "static"
 
 
 def _run_sort_key(run_id: str) -> int:
@@ -58,12 +72,60 @@ def _run_sort_key(run_id: str) -> int:
     digits = re.sub(r"\D", "", run_id)
     return int(digits) if digits else 0
 
+
+# ---------------------------------------------------------------------------
+# Security-headers middleware (pure ASGI — works correctly with streaming
+# StaticFiles responses, unlike BaseHTTPMiddleware).
+# ---------------------------------------------------------------------------
+_CSP = (
+    "default-src 'self'; "
+    "script-src 'self' 'unsafe-inline' https://unpkg.com https://cdn.jsdelivr.net; "
+    "style-src 'self' 'unsafe-inline' https://unpkg.com; "
+    "img-src 'self' data: https:; "
+    "connect-src 'self'; "
+    "worker-src blob:;"
+)
+
+
+class _SecurityHeadersMiddleware:
+    """Injects hardened HTTP response headers on every response."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        async def _send(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(scope=message)
+                headers["X-Content-Type-Options"] = "nosniff"
+                headers["X-Frame-Options"] = "DENY"
+                headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+                headers["Content-Security-Policy"] = _CSP
+            await send(message)
+
+        await self.app(scope, receive, _send)
+
+
 # ---------------------------------------------------------------------------
 # Application instance + static file mounting.
 # ---------------------------------------------------------------------------
-app = FastAPI(title="ViSTA Simulation Format Validator", version="1.0.0")
 
-STATIC_DIR = Path(__file__).parent / "static"
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    """Fail loudly at startup if any required file is missing."""
+    html = STATIC_DIR / "index.html"
+    if not html.exists():
+        raise RuntimeError(f"Required file not found at startup: {html}")
+    logger.info("Startup OK — static/index.html present")
+    yield
+
+
+app = FastAPI(title="ViSTA Simulation Format Validator", version="1.0.0", lifespan=_lifespan)
+app.add_middleware(_SecurityHeadersMiddleware)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
@@ -93,7 +155,10 @@ async def actor_types():
 # ---------------------------------------------------------------------------
 
 @app.post("/api/batch/upload")
-async def batch_upload(zip_file: UploadFile = File(..., description="ZIP archive of test cases")):
+async def batch_upload(
+    zip_file:     UploadFile = File(..., description="ZIP archive of test cases"),
+    vehicle_mode: str        = Form(default="rigid"),
+):
     """
     Accept a ZIP archive, validate all runs, and populate the in-memory batch store.
 
@@ -122,10 +187,14 @@ async def batch_upload(zip_file: UploadFile = File(..., description="ZIP archive
     Raises
     ------
     400 Bad Request
-        If the uploaded file is not a valid ZIP archive.
+        If the uploaded file is not a valid ZIP archive, or contains no
+        recognised VUT_status files.
+    413 Request Entity Too Large
+        If the upload exceeds the 256 MB limit.
     """
-    global _batch_store
-    _batch_store = {}
+    global _batch_store, _vehicle_mode
+    _batch_store  = {}
+    _vehicle_mode = vehicle_mode if vehicle_mode in ("rigid", "articulated") else "rigid"
 
     raw = await zip_file.read(_MAX_UPLOAD_BYTES + 1)
     if len(raw) > _MAX_UPLOAD_BYTES:
@@ -133,10 +202,14 @@ async def batch_upload(zip_file: UploadFile = File(..., description="ZIP archive
             status_code=413,
             detail=f"Upload exceeds {_MAX_UPLOAD_BYTES // (1024 * 1024)} MB limit",
         )
+
     try:
-        zf_raw = zipfile.ZipFile(io.BytesIO(raw))
+        zf_obj = zipfile.ZipFile(io.BytesIO(raw))
+    except zipfile.BadZipFile:
+        raise HTTPException(status_code=400, detail="The uploaded file is not a valid ZIP archive")
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Cannot open ZIP: {exc}")
+        logger.warning("ZIP open failed: %s", exc)
+        raise HTTPException(status_code=400, detail="Could not open the uploaded file as a ZIP archive")
 
     run_pattern = re.compile(r"^(.+)_(r\d+)$")
 
@@ -151,10 +224,10 @@ async def batch_upload(zip_file: UploadFile = File(..., description="ZIP archive
             and not p.name.startswith("._")
         )
 
-    with zf_raw as zf:
+    with zf_obj as zf:
         names = zf.namelist()
 
-        # First pass: build a lookup from parent-dir-name → actor file bytes.
+        # Index actor files by parent directory name before processing VUT files.
         actor_index: dict[str, bytes] = {}
         for name in names:
             if _is_real_file(name, ACTOR_NAMES):
@@ -166,7 +239,6 @@ async def batch_upload(zip_file: UploadFile = File(..., description="ZIP archive
         invalid_runs = 0
         validation_details: dict[str, dict[str, dict]] = {}
 
-        # Second pass: process each VUT file.
         for name in names:
             if not _is_real_file(name, VUT_NAMES):
                 continue
@@ -192,6 +264,9 @@ async def batch_upload(zip_file: UploadFile = File(..., description="ZIP archive
                     actor_bytes = None
                     cached_actor_df = None
 
+            # Detect trailer data presence (independent of mode selection).
+            has_trailer = _vut_has_trailer_data(vut_bytes)
+
             # Validate at index time.
             errors:   list[str] = []
             warnings: list[str] = []
@@ -200,11 +275,16 @@ async def batch_upload(zip_file: UploadFile = File(..., description="ZIP archive
                 ve, vw = validate_vut(vut_df)
                 errors.extend(ve)
                 warnings.extend(vw)
+                if _vehicle_mode == "articulated":
+                    te, tw = validate_trailer_vut(vut_df)
+                    errors.extend(te)
+                    warnings.extend(tw)
                 if cached_actor_df is not None:
                     ae, aw = validate_actors(cached_actor_df)
                     errors.extend(ae)
                     warnings.extend(aw)
             except Exception as exc:
+                logger.warning("Parse error for %s/%s: %s", tc_id, run_id, exc)
                 errors.append(f"Failed to parse file: {exc}")
 
             run_validation = {
@@ -219,12 +299,23 @@ async def batch_upload(zip_file: UploadFile = File(..., description="ZIP archive
                 invalid_runs += 1
 
             _batch_store.setdefault(tc_id, {})[run_id] = {
-                "vut":        vut_bytes,
-                "actor":      actor_bytes,
-                "validation": run_validation,
+                "vut":         vut_bytes,
+                "actor":       actor_bytes,
+                "has_trailer": has_trailer,
+                "validation":  run_validation,
             }
             validation_details.setdefault(tc_id, {})[run_id] = run_validation
             vut_count += 1
+
+    if vut_count == 0:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "No VUT_status files found in the ZIP. "
+                "Expected files named VUT_status.xlsx or VUT_status.csv "
+                "inside directories named {TestCaseId}_{runId}/ (e.g. TC_01_r0/)."
+            ),
+        )
 
     sorted_details = {
         tc: dict(sorted(runs.items(), key=lambda kv: _run_sort_key(kv[0])))
@@ -234,6 +325,17 @@ async def batch_upload(zip_file: UploadFile = File(..., description="ZIP archive
     tc_count     = len(_batch_store)
     overall_valid = (invalid_runs == 0 and vut_count > 0)
 
+    has_trailer_any = any(
+        r.get("has_trailer", False)
+        for tc in _batch_store.values()
+        for r in tc.values()
+    )
+
+    logger.info(
+        "Upload complete: %d TC(s), %d run(s), %d valid, %d invalid, mode=%s",
+        tc_count, vut_count, valid_runs, invalid_runs, _vehicle_mode,
+    )
+
     return {
         "overall_valid":      overall_valid,
         "valid_runs":         valid_runs,
@@ -242,12 +344,14 @@ async def batch_upload(zip_file: UploadFile = File(..., description="ZIP archive
         "run_count":          vut_count,
         "test_cases":         list(_batch_store.keys()),
         "validation_details": sorted_details,
+        "vehicle_mode":       _vehicle_mode,
+        "has_trailer_data":   has_trailer_any,
     }
 
 
 @app.delete("/api/batch/clear")
 async def batch_clear():
-    """Clear the in-memory batch store, freeing all uploaded run data."""
+    """Clear the in-memory batch store."""
     _batch_store.clear()
     return {"cleared": True}
 
@@ -257,9 +361,10 @@ async def batch_test_cases():
     """Return all test case IDs currently loaded in the batch store."""
     result = []
     for tc_id, runs in sorted(_batch_store.items()):
-        has_actors = any(r.get("actor") is not None for r in runs.values())
-        result.append({"id": tc_id, "has_actors": has_actors})
-    return {"test_cases": result}
+        has_actors  = any(r.get("actor") is not None for r in runs.values())
+        has_trailer = any(r.get("has_trailer", False) for r in runs.values())
+        result.append({"id": tc_id, "has_actors": has_actors, "has_trailer": has_trailer})
+    return {"test_cases": result, "vehicle_mode": _vehicle_mode}
 
 
 @app.get("/api/batch/runs/{test_case_id:path}")
@@ -300,10 +405,7 @@ async def batch_evaluate(
     run_id:       str   = Form(...),
 ):
     """
-    Validate and extract trajectory data for a previously uploaded run.
-
-    Returns the validation result (stored at upload time) together with
-    the VUT and actor trajectory arrays needed for the visualisation.
+    Return trajectory data for a previously uploaded run.
 
     Response shape::
 
@@ -338,8 +440,13 @@ async def batch_evaluate(
             actor_bytes=run["actor"],
             test_case_id=test_case_id,
             run_id=run_id,
+            vehicle_mode=_vehicle_mode,
         )
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Evaluation error: {exc}")
+    except Exception:
+        logger.exception("evaluate() failed for %s / %s", test_case_id, run_id)
+        raise HTTPException(
+            status_code=500,
+            detail="Evaluation failed — check the server logs for details",
+        )
 
     return JSONResponse(content=result)

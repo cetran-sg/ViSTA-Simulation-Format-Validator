@@ -1,10 +1,3 @@
-"""
-config.py — Tuneable constants for ViSTA Simulation Format Validator.
-
-Physical parameters for the VUT and actor bounding boxes used during
-trajectory visualisation.
-"""
-
 # ---------------------------------------------------------------------------
 # VUT dimensions
 #
@@ -14,19 +7,13 @@ trajectory visualisation.
 VUT_DIM_LENGTH    = 4.00  # Vh — metres (bumper to bumper)
 VUT_DIM_WIDTH     = 1.90  # Vw — metres (edge to edge)
 
-# Distance from the CoG to the front bumper and left edge (metres).
-# These are used to offset the bounding-box so it is correctly anchored
-# at the CoG position reported by the simulation.  They are independent of
-# the overall dimensions and must be set per-vehicle.
+# Offset from CoG to front bumper and left edge; set independently of overall dimensions.
 VUT_COG_TO_FRONT  = 2.00  # metres
 VUT_COG_TO_LEFT   = 0.95  # metres
 
 # ---------------------------------------------------------------------------
 # Actor bounding-box dimensions (length × width, metres).
-#
-# Keys are the integer Actor_type codes found in Environment_actors_true.
-# Each value is (length_m, width_m) representing the rectangular footprint
-# of that actor class.  Used by the frontend to render OBB markers on the map.
+# Keys are integer Actor_type codes from Environment_actors_true.
 # ---------------------------------------------------------------------------
 ACTOR_DIMENSIONS: dict[int, tuple[float, float]] = {
     0:  (1.00, 1.00),   # pedestrian / generic VRU
@@ -65,9 +52,31 @@ ACTOR_TYPE_NAMES: dict[int, str] = {
     99: "others",
 }
 
-# ---------------------------------------------------------------------------
-# VUT absolute velocity limits (km/h) — informational only.
-# These are not used in format validation but are kept as reference constants.
-# ---------------------------------------------------------------------------
+# VUT absolute velocity limits (km/h) — reference only, not used in validation.
 VUT_VELOCITY_ABS_MIN_KMH = 0.0
 VUT_VELOCITY_ABS_MAX_KMH = 40.0
+
+# ---------------------------------------------------------------------------
+# Articulated (tractor-trailer) mode
+# ---------------------------------------------------------------------------
+
+# Columns required in VUT_status when running in Articulated mode.
+TRAILER_COLUMNS = [
+    "Trailer_pos_lat", "Trailer_pos_lng", "Trailer_pos_z",
+    "Trailer_heading", "Trailer_yaw_rate",
+    "Trailer_jerk_lat", "Trailer_jerk_lng",
+    "Trailer_accl_lat", "Trailer_accl_lng",
+    "Trailer_vel_abs",  "Trailer_travelled",
+]
+
+# Tractor unit (Class 4 tractor) dimensions
+TRACTOR_DIM_LENGTH   = 7.37
+TRACTOR_DIM_WIDTH    = 2.54
+TRACTOR_COG_TO_FRONT = 3.685
+TRACTOR_COG_TO_LEFT  = 1.27
+
+# Trailer unit (ISO semi-trailer) dimensions
+TRAILER_DIM_LENGTH   = 12.19
+TRAILER_DIM_WIDTH    = 2.44
+TRAILER_COG_TO_FRONT = 6.095
+TRAILER_COG_TO_LEFT  = 1.22

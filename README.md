@@ -4,8 +4,6 @@ A local web tool for Autonomous Vehicle developers preparing for the **Milestone
 
 The tool validates files in the **[ViSTA (Virtual Simulation Testing and Assessment) format](https://github.com/cetran-sg/ViSTA-data-format)**, which is used in the Milestone 2 simulation evaluation. This version validates the **ground truth VUT and actor files** (`VUT_status.csv` and `Environment_actors_true.csv`) and visualises vehicle bounding boxes on an interactive map. Future versions will extend validation to simulation results containing perception output and traffic light output.
 
-This tool currently covers **rigid body Class 3 and Class 4** autonomous vehicles **only**.
-
 ---
 
 ## Features
@@ -13,7 +11,8 @@ This tool currently covers **rigid body Class 3 and Class 4** autonomous vehicle
 - **Batch upload** — drop a ZIP archive containing multiple test cases and runs; all files are validated in one step
 - **Instant feedback** — green / yellow / red banner shows whether your data is ready for submission, with per-run error and warning details
 - **Trajectory visualisation** — interactive map with animated timeline scrubbing along with velocity, acceleration, braking/throttle, indicator and reverse/brake time-series charts
-- **Configurable VUT bounding box** — set vehicle length, width and independent CoG offsets so the map marker matches your vehicle geometry
+- **Articulated mode** — upload tractor-trailer data with `Trailer_*` columns; the trailer unit is validated separately and rendered as a distinct orange bounding box on the map
+- **Configurable bounding boxes** — set vehicle length, width and CoG offsets for rigid body (VUT) or articulated (tractor + trailer) modes so map markers match your vehicle geometry
 - **No internet connection required** — runs entirely on your local machine
 
 ---
@@ -79,7 +78,7 @@ chmod +x start.sh stop.sh
 ./start.sh
 ```
 
-The server starts on **http://localhost:8000** and reloads automatically when source files change. Keep the terminal window open while you use the tool.
+The server starts on **http://localhost:8000**. Keep the terminal window open while you use the tool.
 
 ### Stop the server
 
@@ -92,7 +91,7 @@ This sends a graceful kill signal to any process listening on port 8000.
 ### Manual start (without the helper script)
 
 ```bash
-python3 -m uvicorn main:app --reload --port 8000
+python3 -m uvicorn main:app --port 8000
 ```
 
 ---
@@ -125,10 +124,30 @@ archive.zip
 | `Step_number` | Integer simulation step index |
 | `VUT_pos_lat` | VUT latitude (°); valid range −90 to 90 |
 | `VUT_pos_lng` | VUT longitude (°); valid range −180 to 360 |
-| `VUT_heading` | VUT heading (°); valid range 0 to 360 |
+| `VUT_heading` | VUT heading (°); valid range −360 to 360 |
 | `VUT_vel_abs` | VUT absolute speed (m/s); must be non-negative |
 
 Additional columns (e.g. accelerations, braking level, indicators) are passed through to the visualisation charts if present but are not required for validation to pass.
+
+### `VUT_status.csv` — additional columns for Articulated mode
+
+Select **Articulated** mode before uploading to validate tractor-trailer data. The following columns are required in addition to the standard set above:
+
+| Column | Description |
+|---|---|
+| `Trailer_pos_lat` | Trailer latitude (°); valid range −90 to 90 |
+| `Trailer_pos_lng` | Trailer longitude (°); valid range −180 to 360 |
+| `Trailer_pos_z` | Trailer altitude (m) |
+| `Trailer_heading` | Trailer heading (°); valid range −360 to 360 |
+| `Trailer_yaw_rate` | Trailer yaw rate (rad/s) |
+| `Trailer_jerk_lat` | Trailer lateral jerk (m/s³) |
+| `Trailer_jerk_lng` | Trailer longitudinal jerk (m/s³) |
+| `Trailer_accl_lat` | Trailer lateral acceleration (m/s²) |
+| `Trailer_accl_lng` | Trailer longitudinal acceleration (m/s²) |
+| `Trailer_vel_abs` | Trailer absolute speed (m/s); must be non-negative |
+| `Trailer_travelled` | Cumulative distance travelled (m) |
+
+If a file containing `Trailer_pos_lat` data is uploaded in Rigid mode, the tool will offer to switch to Articulated mode automatically.
 
 ### `Environment_actors_true.csv` — required columns
 
@@ -140,7 +159,7 @@ Additional columns (e.g. accelerations, braking level, indicators) are passed th
 | `Actor_type` | Integer actor type code (see table below) |
 | `Actor_pos_true_lat` | Actor latitude (°); valid range −90 to 90 |
 | `Actor_pos_true_lng` | Actor longitude (°); valid range −180 to 360 |
-| `Actor_heading_true` | Actor heading (°); valid range 0 to 360 |
+| `Actor_heading_true` | Actor heading (°); valid range −360 to 360 |
 
 ### Actor type codes
 
@@ -165,24 +184,43 @@ Additional columns (e.g. accelerations, braking level, indicators) are passed th
 
 ## Configuration
 
-Open the **Configuration** tab in the web interface to adjust the VUT bounding-box parameters used for map rendering.
+Open the **Configuration** tab to adjust the bounding-box parameters used for map rendering. The tab shows different inputs depending on the active vehicle mode.
+
+### Rigid mode (default)
 
 | Parameter | Default | Description |
 |---|---|---|
 | Length | 4.00 m | Bumper-to-bumper vehicle length |
 | Width | 1.90 m | Edge-to-edge vehicle width |
-| CoG to front bumper | 2.00 m | Distance from the GPS/CoG reference point to the front bumper |
-| CoG to left edge | 0.95 m | Distance from the GPS/CoG reference point to the left edge |
+| CoG to front bumper | 2.00 m | Distance from the CoG reference point to the front bumper |
+| CoG to left edge | 0.95 m | Distance from the CoG reference point to the left edge |
 
-The CoG offsets are independent of the overall dimensions — set them to match your specific vehicle geometry. Click **Commit Changes** to apply; the new values take effect on the next run evaluation. **Reset to Defaults** restores the values above.
+### Articulated mode
+
+Separate dimension inputs are shown for the **tractor** unit (defaults: 7.37 × 2.54 m, CoG 3.685 / 1.27 m) and the **trailer** unit (defaults: 12.19 × 2.44 m, CoG 6.095 / 1.22 m).
+
+CoG offsets are independent of the overall dimensions — set them to match your specific vehicle geometry. Click **Commit Changes** to apply; the values take effect on the next run evaluation. **Reset to Defaults** restores the values above.
 
 Default values can also be edited permanently in [`config.py`](config.py):
 
 ```python
+# Rigid
 VUT_DIM_LENGTH   = 4.00   # metres
 VUT_DIM_WIDTH    = 1.90   # metres
 VUT_COG_TO_FRONT = 2.00   # metres
 VUT_COG_TO_LEFT  = 0.95   # metres
+
+# Articulated — tractor
+TRACTOR_DIM_LENGTH   = 7.37
+TRACTOR_DIM_WIDTH    = 2.54
+TRACTOR_COG_TO_FRONT = 3.685
+TRACTOR_COG_TO_LEFT  = 1.27
+
+# Articulated — trailer
+TRAILER_DIM_LENGTH   = 12.19
+TRAILER_DIM_WIDTH    = 2.44
+TRAILER_COG_TO_FRONT = 6.095
+TRAILER_COG_TO_LEFT  = 1.22
 ```
 
 ---

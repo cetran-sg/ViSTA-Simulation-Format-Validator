@@ -14,14 +14,17 @@
   --accent:#4f8ef7;--accent2:#7c5ef7;--pass:#22c55e;--fail:#ef4444;
   --warn:#f59e0b;--text:#e2e8f0;--muted:#8892a4;--radius:8px;
 }
-body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;font-size:14px;display:flex;flex-direction:column}
-footer{background:var(--surface);border-top:1px solid var(--border);padding:12px 24px;text-align:center;font-size:12px;color:var(--muted);margin-top:auto}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;font-size:14px}
+footer{position:fixed;bottom:0;left:0;right:0;background:var(--surface);border-top:1px solid var(--border);padding:10px 24px;display:flex;align-items:center;font-size:12px;color:var(--muted);z-index:900}
+footer .footer-version{flex-shrink:0;font-family:monospace;font-size:11px}
+footer .footer-copy{flex:1;text-align:center}
 footer a{color:var(--muted);text-decoration:underline;text-underline-offset:2px}
 footer a:hover{color:var(--text)}
-header{background:var(--surface);border-bottom:1px solid var(--border);padding:0 24px;display:flex;align-items:center;gap:16px;height:56px}
+body{padding-bottom:42px}
+header{background:var(--surface);border-bottom:1px solid var(--border);padding:0 24px;display:flex;align-items:center;gap:16px;height:68px}
 header h1{font-size:18px;font-weight:700;color:var(--accent);letter-spacing:-.3px}
 header .badge{background:var(--accent2);color:#fff;font-size:11px;padding:2px 8px;border-radius:99px;font-weight:600}
-header .badge-green{background:var(--pass)}
+header .header-logo{height:16px;width:auto;display:block;margin-bottom:5px;align-self:flex-start}
 .tabs{display:flex;background:var(--surface);border-bottom:1px solid var(--border);padding:0 24px;gap:4px;overflow-x:auto}
 .tab-btn{background:none;border:none;color:var(--muted);padding:12px 16px;cursor:pointer;font-size:13px;font-weight:500;border-bottom:2px solid transparent;white-space:nowrap;transition:color .15s,border-color .15s}
 .tab-btn.active{color:var(--accent);border-bottom-color:var(--accent)}
@@ -120,15 +123,21 @@ hr{border:none;border-top:1px solid var(--border);margin:20px 0}
 <div id="loading"><div class="spinner"></div></div>
 
 <header>
-  <h1>ViSTA Simulation Format Validator</h1>
-  <span class="badge badge-green">Class 3</span>
-  <span class="badge">Class 4</span>
+  <div style="display:flex;flex-direction:column;justify-content:center;">
+    <img src="/static/CETRAN-logo.png" alt="CETRAN logo" class="header-logo"/>
+    <div style="display:flex;align-items:center;gap:10px;">
+      <h1>ViSTA Simulation Format Validator</h1>
+      <span class="badge" id="header-artic-badge" style="display:none;background:#f97316;">Articulated</span>
+    </div>
+  </div>
 </header>
 
 <div class="tabs">
-  <button class="tab-btn active" data-tab="upload">Upload</button>
-  <button class="tab-btn" data-tab="viz">Visualisation</button>
-  <button class="tab-btn" data-tab="config">Configuration</button>
+  <button class="tab-btn active" data-tab="upload" style="display:flex;align-items:center;gap:6px;"><span style="font-size:14px;line-height:1;">&#11014;</span> Upload</button>
+  <span style="width:1px;background:var(--border);align-self:stretch;flex-shrink:0;margin:0 20px;opacity:.6;"></span>
+  <button class="tab-btn" data-tab="viz" style="display:flex;align-items:center;gap:6px;"><span style="font-size:14px;line-height:1;">&#9654;</span> Visualisation</button>
+  <span style="width:1px;background:var(--border);align-self:stretch;flex-shrink:0;margin:0 20px;opacity:.6;"></span>
+  <button class="tab-btn" data-tab="config" style="margin-left:auto;display:flex;align-items:center;gap:7px;"><span style="font-size:17px;line-height:1;">&#9881;</span> Configuration</button>
 </div>
 
 <!-- ═══════════════════════════════════════════════════════════════
@@ -137,6 +146,22 @@ hr{border:none;border-top:1px solid var(--border);margin:20px 0}
 <div class="tab-panel active" data-panel="upload">
 <div class="container">
   <div id="error-banner"></div>
+
+  <!-- Vehicle Mode selector -->
+  <div class="card section-gap">
+    <div class="card-title">Vehicle Mode</div>
+    <div class="speed-pills" id="vehicle-mode-pills" style="display:inline-flex;">
+      <button class="speed-btn active" id="mode-rigid-btn"
+              onclick="setVehicleMode('rigid')">Rigid</button>
+      <button class="speed-btn" id="mode-artic-btn"
+              onclick="setVehicleMode('articulated')">Articulated</button>
+    </div>
+    <p id="mode-artic-note" class="muted hidden" style="font-size:12px;margin-top:8px;">
+      Articulated mode expects VUT_status to include Trailer_pos_lat, Trailer_pos_lng,
+      Trailer_heading and all other Trailer_* columns. The trailer is visualised as a
+      separate orange OBB on the trajectory map.
+    </p>
+  </div>
 
   <!-- Data Format Guide -->
   <div class="card section-gap format-guide">
@@ -149,6 +174,12 @@ hr{border:none;border-top:1px solid var(--border);margin:20px 0}
     <div class="guide-section">
       <div class="guide-label">VUT_status required columns</div>
       <pre>Time, Step_number, VUT_pos_lat, VUT_pos_lng, VUT_heading, VUT_vel_abs</pre>
+    </div>
+    <div id="guide-trailer-section" class="guide-section hidden">
+      <div class="guide-label">VUT_status additional columns (Articulated mode)</div>
+      <pre>Trailer_pos_lat, Trailer_pos_lng, Trailer_pos_z, Trailer_heading, Trailer_yaw_rate,
+Trailer_jerk_lat, Trailer_jerk_lng, Trailer_accl_lat, Trailer_accl_lng,
+Trailer_vel_abs, Trailer_travelled</pre>
     </div>
     <div class="guide-section">
       <div class="guide-label">Environment_actors_true required columns</div>
@@ -306,6 +337,20 @@ hr{border:none;border-top:1px solid var(--border);margin:20px 0}
 <div class="tab-panel" data-panel="config">
 <div class="container">
 
+  <!-- Vehicle Mode toggle (mirrors Upload tab; kept in sync via setVehicleMode()) -->
+  <div class="card section-gap">
+    <div class="card-title">Vehicle Mode</div>
+    <div class="speed-pills" style="display:inline-flex;">
+      <button class="speed-btn active" id="cfg-rigid-pill"
+              onclick="setVehicleMode('rigid')">Rigid</button>
+      <button class="speed-btn" id="cfg-artic-pill"
+              onclick="setVehicleMode('articulated')">Articulated</button>
+    </div>
+  </div>
+
+  <!-- Rigid section (shown when mode = rigid) -->
+  <div id="cfg-rigid-section">
+
   <!-- VUT Dimensions & CoG -->
   <div class="card section-gap">
     <div class="card-title">VUT Dimensions</div>
@@ -349,6 +394,81 @@ hr{border:none;border-top:1px solid var(--border);margin:20px 0}
     </div>
   </div>
 
+  </div><!-- end #cfg-rigid-section -->
+
+  <!-- Articulated section (shown when mode = articulated) -->
+  <div id="cfg-artic-section" class="hidden">
+
+  <div class="card section-gap">
+    <div class="card-title">Tractor Dimensions</div>
+    <p class="muted" style="font-size:13px;margin-bottom:16px;">
+      Dimensions of the powered tractor unit. The tractor position is taken from
+      VUT_pos_lat / VUT_pos_lng in VUT_status.
+    </p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:480px;margin-bottom:24px;">
+      <label style="display:flex;flex-direction:column;gap:6px;font-size:13px;">
+        Length (m)
+        <input type="number" id="tractor-length" class="excl-input" value="7.37" min="0.1" max="30" step="0.01"
+               style="width:100%;"/>
+      </label>
+      <label style="display:flex;flex-direction:column;gap:6px;font-size:13px;">
+        Width (m)
+        <input type="number" id="tractor-width" class="excl-input" value="2.54" min="0.1" max="10" step="0.01"
+               style="width:100%;"/>
+      </label>
+    </div>
+    <div class="card-title" style="margin-bottom:8px;">Tractor CoG Offset</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:480px;margin-bottom:24px;">
+      <label style="display:flex;flex-direction:column;gap:6px;font-size:13px;">
+        CoG to front bumper (m)
+        <input type="number" id="tractor-cog-front" class="excl-input" value="3.685" min="0" max="30" step="0.001"
+               style="width:100%;"/>
+      </label>
+      <label style="display:flex;flex-direction:column;gap:6px;font-size:13px;">
+        CoG to left edge (m)
+        <input type="number" id="tractor-cog-left" class="excl-input" value="1.27" min="0" max="10" step="0.001"
+               style="width:100%;"/>
+      </label>
+    </div>
+
+    <div class="card-title">Trailer Dimensions</div>
+    <p class="muted" style="font-size:13px;margin-bottom:16px;">
+      Dimensions of the trailer unit. The trailer position is taken from the
+      Trailer_pos_lat / Trailer_pos_lng columns in VUT_status.
+    </p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:480px;margin-bottom:24px;">
+      <label style="display:flex;flex-direction:column;gap:6px;font-size:13px;">
+        Length (m)
+        <input type="number" id="trailer-length" class="excl-input" value="12.19" min="0.1" max="30" step="0.01"
+               style="width:100%;"/>
+      </label>
+      <label style="display:flex;flex-direction:column;gap:6px;font-size:13px;">
+        Width (m)
+        <input type="number" id="trailer-width" class="excl-input" value="2.44" min="0.1" max="10" step="0.01"
+               style="width:100%;"/>
+      </label>
+    </div>
+    <div class="card-title" style="margin-bottom:8px;">Trailer CoG Offset</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:480px;margin-bottom:16px;">
+      <label style="display:flex;flex-direction:column;gap:6px;font-size:13px;">
+        CoG to front (m)
+        <input type="number" id="trailer-cog-front" class="excl-input" value="6.095" min="0" max="30" step="0.001"
+               style="width:100%;"/>
+      </label>
+      <label style="display:flex;flex-direction:column;gap:6px;font-size:13px;">
+        CoG to left edge (m)
+        <input type="number" id="trailer-cog-left" class="excl-input" value="1.22" min="0" max="10" step="0.001"
+               style="width:100%;"/>
+      </label>
+    </div>
+    <div style="display:flex;gap:8px;">
+      <button class="btn btn-primary btn-sm" id="artic-commit-btn" onclick="commitArticulatedConfig()">Commit Changes</button>
+      <button class="btn btn-secondary btn-sm" onclick="resetArticulatedConfig()">Reset to Defaults</button>
+    </div>
+  </div>
+
+  </div><!-- end #cfg-artic-section -->
+
 </div>
 </div>
 
@@ -391,6 +511,7 @@ let batchLoaded   = false;
 
 // Map scrub markers
 let vutScrubMarker    = null;
+let trailerScrubMarker = null;
 let actorScrubMarkers = [];
 
 // Viz tab state
@@ -400,9 +521,21 @@ let vizActiveTc  = '';
 // Color palettes
 const ACTOR_COLORS = ['#f87171','#fb923c','#facc15','#4ade80','#34d399','#a78bfa','#f472b6','#38bdf8'];
 
+// Vehicle mode — 'rigid' or 'articulated'
+let vehicleMode = 'rigid';
+
 // VUT configuration (dimensions + CoG) — defaults match config.py
 const VUT_DEFAULTS = { length: 4.00, width: 1.90, cog_to_front: 2.00, cog_to_left: 0.95 };
 let vutConfig = { ...VUT_DEFAULTS };
+
+// Articulated configuration (tractor + trailer dims / CoG)
+const ARTIC_DEFAULTS = {
+  tractor_length: 7.37, tractor_width: 2.54,
+  tractor_cog_front: 3.685, tractor_cog_left: 1.27,
+  trailer_length: 12.19, trailer_width: 2.44,
+  trailer_cog_front: 6.095, trailer_cog_left: 1.22,
+};
+let articulatedConfig = { ...ARTIC_DEFAULTS };
 
 function commitVutConfig() {
   const length      = parseFloat(document.getElementById('vut-length').value);
@@ -425,6 +558,55 @@ function resetVutConfig() {
   document.getElementById('vut-width').value     = vutConfig.width;
   document.getElementById('vut-cog-front').value = vutConfig.cog_to_front;
   document.getElementById('vut-cog-left').value  = vutConfig.cog_to_left;
+}
+
+// ── Vehicle mode toggle ───────────────────────────────────────────
+function setVehicleMode(mode) {
+  vehicleMode = mode;
+  // Upload tab pills
+  document.getElementById('mode-rigid-btn').classList.toggle('active', mode === 'rigid');
+  document.getElementById('mode-artic-btn').classList.toggle('active', mode === 'articulated');
+  document.getElementById('mode-artic-note').classList.toggle('hidden', mode === 'rigid');
+  // Config tab pills + sections
+  document.getElementById('cfg-rigid-section').classList.toggle('hidden', mode !== 'rigid');
+  document.getElementById('cfg-artic-section').classList.toggle('hidden', mode !== 'articulated');
+  document.getElementById('cfg-rigid-pill').classList.toggle('active', mode === 'rigid');
+  document.getElementById('cfg-artic-pill').classList.toggle('active', mode === 'articulated');
+  // Data format guide — show/hide trailer columns section
+  const guideEl = document.getElementById('guide-trailer-section');
+  if (guideEl) guideEl.classList.toggle('hidden', mode !== 'articulated');
+  // Header badge
+  const badgeEl = document.getElementById('header-artic-badge');
+  if (badgeEl) badgeEl.style.display = mode === 'articulated' ? '' : 'none';
+}
+
+// ── Articulated configuration ─────────────────────────────────────
+function commitArticulatedConfig() {
+  articulatedConfig.tractor_length    = parseFloat(document.getElementById('tractor-length').value)    || ARTIC_DEFAULTS.tractor_length;
+  articulatedConfig.tractor_width     = parseFloat(document.getElementById('tractor-width').value)     || ARTIC_DEFAULTS.tractor_width;
+  articulatedConfig.tractor_cog_front = parseFloat(document.getElementById('tractor-cog-front').value) || ARTIC_DEFAULTS.tractor_cog_front;
+  articulatedConfig.tractor_cog_left  = parseFloat(document.getElementById('tractor-cog-left').value)  || ARTIC_DEFAULTS.tractor_cog_left;
+  articulatedConfig.trailer_length    = parseFloat(document.getElementById('trailer-length').value)    || ARTIC_DEFAULTS.trailer_length;
+  articulatedConfig.trailer_width     = parseFloat(document.getElementById('trailer-width').value)     || ARTIC_DEFAULTS.trailer_width;
+  articulatedConfig.trailer_cog_front = parseFloat(document.getElementById('trailer-cog-front').value) || ARTIC_DEFAULTS.trailer_cog_front;
+  articulatedConfig.trailer_cog_left  = parseFloat(document.getElementById('trailer-cog-left').value)  || ARTIC_DEFAULTS.trailer_cog_left;
+  const btn = document.getElementById('artic-commit-btn');
+  const prev = btn.textContent;
+  btn.textContent = '✓ Committed';
+  btn.disabled = true;
+  setTimeout(() => { btn.textContent = prev; btn.disabled = false; }, 1800);
+}
+
+function resetArticulatedConfig() {
+  articulatedConfig = { ...ARTIC_DEFAULTS };
+  document.getElementById('tractor-length').value    = articulatedConfig.tractor_length;
+  document.getElementById('tractor-width').value     = articulatedConfig.tractor_width;
+  document.getElementById('tractor-cog-front').value = articulatedConfig.tractor_cog_front;
+  document.getElementById('tractor-cog-left').value  = articulatedConfig.tractor_cog_left;
+  document.getElementById('trailer-length').value    = articulatedConfig.trailer_length;
+  document.getElementById('trailer-width').value     = articulatedConfig.trailer_width;
+  document.getElementById('trailer-cog-front').value = articulatedConfig.trailer_cog_front;
+  document.getElementById('trailer-cog-left').value  = articulatedConfig.trailer_cog_left;
 }
 
 // ── HTML escaping (prevents XSS when inserting server data into innerHTML) ──
@@ -494,12 +676,34 @@ function setupDrop(dropId, inputId, nameId, onChange) {
 }
 setupDrop('zip-drop', 'zip-file', 'zip-name');
 
+// ── Viz state reset (called on every new upload so stale results don't carry over) ──
+function _resetVizState() {
+  if (Playback.active) { Playback.pause(); setPlayBtn(false); }
+  vizTcResults = {};
+  vizActiveTc  = '';
+  evalResult   = null;
+  Object.keys(chartInstances).forEach(id => destroyChart(id));
+  clearMapLayers();
+  if (vutScrubMarker)     { vutScrubMarker.remove();     vutScrubMarker     = null; }
+  if (trailerScrubMarker) { trailerScrubMarker.remove();  trailerScrubMarker = null; }
+  actorScrubMarkers.forEach(m => m && m.remove()); actorScrubMarkers = [];
+  document.getElementById('eval-results-section').classList.add('hidden');
+  document.getElementById('viz-content').classList.add('hidden');
+  document.getElementById('viz-placeholder').classList.remove('hidden');
+  document.getElementById('viz-run-list').innerHTML =
+    '<span class="muted" style="font-size:13px;">Select a test case to load its runs.</span>';
+  document.getElementById('viz-tc').value = '';
+}
+
 // ── Batch upload ──────────────────────────────────────────────────
 async function uploadBatch() {
   const file = document.getElementById('zip-file').files[0];
   if (!file) { showError('Please select a ZIP file.'); return; }
   showLoading(true); hideError();
-  const fd = new FormData(); fd.append('zip_file', file);
+  _resetVizState();
+  const fd = new FormData();
+  fd.append('zip_file', file);
+  fd.append('vehicle_mode', vehicleMode);
   try {
     const res = await fetch('/api/batch/upload', { method:'POST', body:fd });
     if (!res.ok) throw new Error((await res.json()).detail || 'Server error');
@@ -511,8 +715,23 @@ async function uploadBatch() {
     document.getElementById('batch-goto-viz').style.display = 'inline-flex';
     document.getElementById('clear-batch-btn').style.display = 'inline-flex';
     showValidationBanner(d);
+    // Prompt to switch to Articulated mode when trailer data is detected
+    if (d.has_trailer_data && vehicleMode === 'rigid') showTrailerModeDialog();
   } catch(e) { showError('Upload failed: ' + e.message); }
   finally { showLoading(false); }
+}
+
+// ── Trailer mode detection dialog ────────────────────────────────
+function showTrailerModeDialog() {
+  document.getElementById('trailer-mode-dialog').style.display = 'flex';
+}
+async function dismissTrailerDialog(switchMode) {
+  document.getElementById('trailer-mode-dialog').style.display = 'none';
+  if (switchMode) {
+    setVehicleMode('articulated');
+    // Re-upload the same file with the new mode so validation runs correctly
+    await uploadBatch();
+  }
 }
 
 function showValidationBanner(uploadData) {
@@ -584,15 +803,8 @@ async function clearBatchData() {
   } catch(e) { /* ignore — reset UI regardless */ }
   finally { showLoading(false); }
 
-  batchLoaded  = false;
-  vizActiveTc  = '';
-  vizTcResults = {};
-  evalResult   = null;
-
-  Object.keys(chartInstances).forEach(id => destroyChart(id));
-  clearMapLayers();
-  if (vutScrubMarker) { vutScrubMarker.remove(); vutScrubMarker = null; }
-  actorScrubMarkers.forEach(m => m && m.remove()); actorScrubMarkers = [];
+  batchLoaded = false;
+  _resetVizState();
 
   // Reset Upload tab
   document.getElementById('zip-file').value = '';
@@ -607,12 +819,6 @@ async function clearBatchData() {
   // Reset Visualisation tab
   document.getElementById('viz-no-batch').style.display = 'block';
   document.getElementById('viz-batch-section').classList.add('hidden');
-  document.getElementById('eval-results-section').classList.add('hidden');
-  document.getElementById('viz-placeholder').classList.remove('hidden');
-  document.getElementById('viz-content').classList.add('hidden');
-  document.getElementById('viz-run-list').innerHTML =
-    '<span class="muted" style="font-size:13px;">Select a test case to load its runs.</span>';
-  document.getElementById('viz-tc').value = '';
 }
 
 async function refreshBatchTcDropdown(selId) {
@@ -832,8 +1038,23 @@ const VizScrub = {
     const vut = evalResult?.vut;
     if (vutScrubMarker && vut?.t) {
       const idx = bisect(vut.t, tVal);
-      if (idx >= 0) updateObb(vutScrubMarker, vut.lat[idx], vut.lng[idx],
-        (vut.heading||[])[idx]||0, vutConfig.length, vutConfig.width, vutConfig.cog_to_front, vutConfig.cog_to_left);
+      if (idx >= 0) {
+        const isArtic = vehicleMode === 'articulated';
+        const sLen  = isArtic ? articulatedConfig.tractor_length    : vutConfig.length;
+        const sWid  = isArtic ? articulatedConfig.tractor_width     : vutConfig.width;
+        const sCogF = isArtic ? articulatedConfig.tractor_cog_front : vutConfig.cog_to_front;
+        const sCogL = isArtic ? articulatedConfig.tractor_cog_left  : vutConfig.cog_to_left;
+        updateObb(vutScrubMarker, vut.lat[idx], vut.lng[idx],
+          (vut.heading||[])[idx]||0, sLen, sWid, sCogF, sCogL);
+      }
+    }
+    // Trailer scrub marker (articulated mode)
+    const trailer = evalResult?.trailer;
+    if (trailerScrubMarker && trailer?.t) {
+      const idx = bisect(trailer.t, tVal);
+      if (idx >= 0) updateObb(trailerScrubMarker, trailer.lat[idx], trailer.lng[idx],
+        (trailer.heading||[])[idx]||0, articulatedConfig.trailer_length, articulatedConfig.trailer_width,
+        articulatedConfig.trailer_cog_front, articulatedConfig.trailer_cog_left);
     }
     (evalResult?.actors || []).forEach((actor, i) => {
       const m = actorScrubMarkers[i];
@@ -1023,7 +1244,8 @@ function renderVisualisation() {
 
   initMainMap();
   clearMapLayers();
-  if (vutScrubMarker) { vutScrubMarker.remove(); vutScrubMarker = null; }
+  if (vutScrubMarker)     { vutScrubMarker.remove();    vutScrubMarker     = null; }
+  if (trailerScrubMarker) { trailerScrubMarker.remove(); trailerScrubMarker = null; }
   actorScrubMarkers.forEach(m => m && m.remove()); actorScrubMarkers = [];
 
   const vut    = evalResult.vut;
@@ -1031,20 +1253,44 @@ function renderVisualisation() {
   const legend = document.getElementById('viz-legend');
   legend.innerHTML = '';
 
-  const vCogF = vutConfig.cog_to_front, vCogL = vutConfig.cog_to_left;
-  const vLen  = vutConfig.length,        vWid  = vutConfig.width;
+  const isArtic = vehicleMode === 'articulated';
+  const vCogF = isArtic ? articulatedConfig.tractor_cog_front : vutConfig.cog_to_front;
+  const vCogL = isArtic ? articulatedConfig.tractor_cog_left  : vutConfig.cog_to_left;
+  const vLen  = isArtic ? articulatedConfig.tractor_length    : vutConfig.length;
+  const vWid  = isArtic ? articulatedConfig.tractor_width     : vutConfig.width;
+  const vutLabel = isArtic ? 'Tractor' : 'VUT';
 
   if (vut.lat && vut.lat.length) {
     const lls = vut.lat.map((lat, i) => [lat, vut.lng[i]]);
     const poly = L.polyline(lls, { color:'#4f8ef7', weight:2, opacity:.8 }).addTo(mapInstance);
     const h0 = (vut.heading||[])[0]||0, hN = (vut.heading||[])[vut.heading.length-1]||0;
     mapLayers.push(poly,
-      makeObbPoly(mapInstance, lls[0][0], lls[0][1], h0, vLen, vWid, vCogF, vCogL, '#4f8ef7', {fillOpacity:0.5}).bindPopup('VUT Start'),
-      makeObbPoly(mapInstance, lls[lls.length-1][0], lls[lls.length-1][1], hN, vLen, vWid, vCogF, vCogL, '#4f8ef7', {fillOpacity:0.2, dashArray:'4 3'}).bindPopup('VUT End'));
+      makeObbPoly(mapInstance, lls[0][0], lls[0][1], h0, vLen, vWid, vCogF, vCogL, '#4f8ef7', {fillOpacity:0.5}).bindPopup(`${vutLabel} Start`),
+      makeObbPoly(mapInstance, lls[lls.length-1][0], lls[lls.length-1][1], hN, vLen, vWid, vCogF, vCogL, '#4f8ef7', {fillOpacity:0.2, dashArray:'4 3'}).bindPopup(`${vutLabel} End`));
     mapInstance.fitBounds(poly.getBounds(), {padding:[30,30], maxZoom:18});
     mapInstance.once('zoomend', () => mapInstance.setZoom(mapInstance.getZoom() + 1));
-    legend.innerHTML += legendItem('#4f8ef7','VUT');
+    legend.innerHTML += legendItem('#4f8ef7', vutLabel);
     vutScrubMarker = makeObbPoly(mapInstance, lls[0][0], lls[0][1], h0, vLen, vWid, vCogF, vCogL, '#fff', {fillColor:'#4f8ef7', fillOpacity:0.7, weight:2});
+  }
+
+  // Trailer (articulated mode only)
+  const trailer = evalResult?.trailer;
+  if (trailer?.lat?.length) {
+    const TC    = '#f97316';
+    const tLls  = trailer.lat.map((lat, i) => [lat, trailer.lng[i]]);
+    const th0   = (trailer.heading||[])[0]||0;
+    const thN   = (trailer.heading||[])[trailer.heading.length-1]||0;
+    const tLen  = articulatedConfig.trailer_length;
+    const tWid  = articulatedConfig.trailer_width;
+    const tCogF = articulatedConfig.trailer_cog_front;
+    const tCogL = articulatedConfig.trailer_cog_left;
+    mapLayers.push(
+      L.polyline(tLls, { color:TC, weight:2, opacity:.8 }).addTo(mapInstance),
+      makeObbPoly(mapInstance, tLls[0][0], tLls[0][1], th0, tLen, tWid, tCogF, tCogL, TC, {fillOpacity:0.5}).bindPopup('Trailer Start'),
+      makeObbPoly(mapInstance, tLls[tLls.length-1][0], tLls[tLls.length-1][1], thN, tLen, tWid, tCogF, tCogL, TC, {fillOpacity:0.2, dashArray:'4 3'}).bindPopup('Trailer End')
+    );
+    legend.innerHTML += legendItem(TC, 'Trailer');
+    trailerScrubMarker = makeObbPoly(mapInstance, tLls[0][0], tLls[0][1], th0, tLen, tWid, tCogF, tCogL, '#fff', {fillColor:TC, fillOpacity:0.7, weight:2});
   }
 
   actors.forEach((actor, i) => {
@@ -1160,11 +1406,48 @@ function chartOpts(xLabel, yLabel, title) {
   };
 }
 </script>
+<!-- ── Trailer-mode detection modal ───────────────────────────────── -->
+<div id="trailer-mode-dialog"
+     style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.65);
+            align-items:center;justify-content:center;"
+     onclick="if(event.target===this)dismissTrailerDialog(false)">
+  <div style="background:#1a1d27;border:1px solid #334155;border-radius:12px;
+              padding:28px 32px;max-width:440px;width:90%;
+              box-shadow:0 12px 40px rgba(0,0,0,0.6);">
+    <div style="font-size:15px;font-weight:700;color:#f1f5f9;margin-bottom:10px;">
+      Trailer data detected
+    </div>
+    <div style="font-size:13px;color:#94a3b8;line-height:1.6;margin-bottom:24px;">
+      The uploaded files contain <strong style="color:#f1f5f9;">Trailer_*</strong>
+      data columns. Switching to <strong style="color:#f1f5f9;">Articulated mode</strong>
+      will re-validate all runs against the full Trailer_* column requirements and
+      visualise the trailer unit on the map.
+    </div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;">
+      <button onclick="dismissTrailerDialog(false)"
+              style="padding:8px 18px;border-radius:6px;border:1px solid #475569;
+                     background:transparent;color:#94a3b8;cursor:pointer;font-size:13px;
+                     font-family:inherit;">
+        No, stay in Rigid mode
+      </button>
+      <button onclick="dismissTrailerDialog(true)"
+              style="padding:8px 22px;border-radius:6px;border:none;background:#3b82f6;
+                     color:#fff;cursor:pointer;font-size:13px;font-weight:700;
+                     font-family:inherit;letter-spacing:0.01em;">
+        Switch to Articulated &amp; Re-validate
+      </button>
+    </div>
+  </div>
+</div>
+
 <footer>
-  <a href="https://cetran.sg" target="_blank" rel="noopener">CETRAN</a>
-  &nbsp;(Centre of Excellence for Testing &amp; Research of Autonomous Vehicles
-  &nbsp;–&nbsp;
-  <a href="https://www.ntu.edu.sg" target="_blank" rel="noopener">Nanyang Technological University)</a>
+  <span class="footer-version">v1.0.0</span>
+  <span class="footer-copy">
+    <a href="https://cetran.sg" target="_blank" rel="noopener">CETRAN</a>
+    &nbsp;(Centre of Excellence for Testing &amp; Research of Autonomous Vehicles
+    &nbsp;–&nbsp;
+    <a href="https://www.ntu.edu.sg" target="_blank" rel="noopener">Nanyang Technological University)</a>
+  </span>
 </footer>
 </body>
 </html>

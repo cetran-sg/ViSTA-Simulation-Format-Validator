@@ -1,33 +1,28 @@
 """
-processor.py — Simplified evaluation pipeline for ViSTA Simulation Format Validator.
+processor.py — Data loading and evaluation pipeline for ViSTA Simulation Format Validator.
 
-This module loads VUT and actor data, validates their format, and builds
-trajectory dictionaries for the visualisation frontend.
-
-Pipeline overview
------------------
     evaluate()
-    ├── load_vut()              Parse VUT_status file → DataFrame
-    ├── validate_vut()          Data format checks
-    ├── load_actors()           Parse Environment_actors_true → DataFrame (if present)
-    ├── validate_actors()       Data format checks (if present)
-    └── Build trajectory dicts  lat / lng / heading / t arrays for the map
+    ├── load_vut()              VUT_status → DataFrame
+    ├── validate_vut()          Format checks
+    ├── load_actors()           Environment_actors_true → DataFrame (if present)
+    ├── validate_actors()       Format checks (if present)
+    └── trajectory dicts        lat / lng / heading / t arrays for the map
 
-Naming conventions
-------------------
-    VUT  — Vehicle Under Test (the AV being evaluated)
+VUT — Vehicle Under Test
 """
 from __future__ import annotations
 
 import io
-import math
 from typing import Any
 
 import numpy as np
 import pandas as pd
 
 import config
-from validator import validate_vut, validate_actors
+from validator import validate_vut, validate_actors, validate_trailer_vut
+
+# Columns required in the actor DataFrame to build trajectory arrays.
+_ACTOR_TRAJ_REQUIRED = frozenset({"Actor_pos_true_lat", "Actor_pos_true_lng", "Step_number"})
 
 
 # ---------------------------------------------------------------------------
@@ -35,20 +30,24 @@ from validator import validate_vut, validate_actors
 # ---------------------------------------------------------------------------
 
 def _read_tabular(file_bytes: bytes) -> pd.DataFrame:
-    """Load file bytes as either XLSX or CSV, auto-detected from magic header."""
+    """Load file bytes as either XLSX or CSV, auto-detected from magic header.
+
+    CSV encoding is tried as UTF-8 first, then latin-1 as a fallback so that
+    Windows-1252 exports (common from Excel "Save as CSV") are handled correctly.
+    """
     if file_bytes[:4] == b'PK\x03\x04':
         return pd.read_excel(io.BytesIO(file_bytes), engine='openpyxl')
-    return pd.read_csv(io.BytesIO(file_bytes))
+    try:
+        return pd.read_csv(io.BytesIO(file_bytes), encoding='utf-8')
+    except UnicodeDecodeError:
+        return pd.read_csv(io.BytesIO(file_bytes), encoding='latin-1')
 
 
 def load_vut(file_bytes: bytes) -> pd.DataFrame:
-    """Parse a VUT_status file and return a clean DataFrame.
+    """Parse VUT_status bytes → clean DataFrame.
 
-    Post-processing:
-    - Column names stripped of surrounding whitespace.
-    - Unnamed columns dropped.
-    - Relative time column ``t`` added: ``t = Time - Time[0]``.
-    - ``VUT_vel_ms`` and ``VUT_vel_kmh`` derived from ``VUT_vel_abs``.
+    Strips whitespace from column names, drops Unnamed columns, adds relative
+    time column ``t = Time - Time[0]``, and derives ``VUT_vel_ms`` / ``VUT_vel_kmh``.
     """
     df = _read_tabular(file_bytes)
     df.columns = [str(c).strip() for c in df.columns]
@@ -64,12 +63,10 @@ def load_vut(file_bytes: bytes) -> pd.DataFrame:
 
 
 def load_actors(file_bytes: bytes) -> pd.DataFrame:
-    """Parse an Environment_actors_true file and return a long-format DataFrame.
+    """Parse Environment_actors_true bytes → long-format DataFrame.
 
-    Post-processing:
-    - Column names stripped and Unnamed columns dropped.
-    - ``Actor_vel_abs`` reconstructed from Pythagorean sum of components
-      where it is zero but components are available.
+    Strips and cleans column names; reconstructs ``Actor_vel_abs`` from
+    velocity components where the stored value is zero but components exist.
     """
     df = _read_tabular(file_bytes)
     df.columns = [str(c).strip() for c in df.columns]
@@ -83,6 +80,41 @@ def load_actors(file_bytes: bytes) -> pd.DataFrame:
             + df.loc[zero_mask, "Actor_vel_lng"].fillna(0) ** 2
         )
     return df
+
+
+def _vut_has_trailer_data(file_bytes: bytes) -> bool:
+    """Return True if VUT_status contains at least one non-null Trailer_pos_lat value."""
+    try:
+        df = _read_tabular(file_bytes)
+        df.columns = [str(c).strip() for c in df.columns]
+        return (
+            "Trailer_pos_lat" in df.columns
+            and bool(df["Trailer_pos_lat"].notna().any())
+        )
+    except Exception:
+        return False
+
+
+def load_trailer(df: pd.DataFrame) -> dict[str, Any]:
+    """Build trailer timeseries dict from Trailer_* columns in a loaded VUT DataFrame.
+
+    Returns:
+        Dict with keys ``t``, ``lat``, ``lng``, ``heading`` as float lists.
+    """
+    def _safe(name: str) -> list[float]:
+        if name not in df.columns:
+            return [0.0] * len(df)
+        return pd.to_numeric(df[name], errors='coerce').fillna(0.0).round(6).tolist()
+
+    return {
+        "t": (
+            pd.to_numeric(df["t"], errors='coerce').fillna(0.0).round(6).tolist()
+            if "t" in df.columns else [0.0] * len(df)
+        ),
+        "lat":     _safe("Trailer_pos_lat"),
+        "lng":     _safe("Trailer_pos_lng"),
+        "heading": _safe("Trailer_heading"),
+    }
 
 
 def extract_actors(file_bytes: bytes) -> list[dict]:
@@ -105,6 +137,17 @@ def extract_actors(file_bytes: bytes) -> list[dict]:
     return result
 
 
+# ---------------------------------------------------------------------------
+# Vectorised column extraction helper (module-level for reuse)
+# ---------------------------------------------------------------------------
+
+def _to_float_list(series: pd.Series, decimals: int, default: float = 0.0) -> list[float]:
+    """Series → rounded float list; non-numeric/NaN values replaced with default.
+
+    Vectorised — avoids per-row Python iteration on large DataFrames.
+    """
+    return pd.to_numeric(series, errors='coerce').fillna(default).round(decimals).tolist()
+
 
 # ---------------------------------------------------------------------------
 # Full evaluation pipeline
@@ -115,6 +158,7 @@ def evaluate(
     actor_bytes:  bytes | None,
     test_case_id: str,
     run_id:       str,
+    vehicle_mode: str = "rigid",
 ) -> dict[str, Any]:
     """Validate and extract trajectory data for one simulation run.
 
@@ -123,13 +167,16 @@ def evaluate(
         actor_bytes:  Raw bytes of Environment_actors_true.xlsx/csv, or None.
         test_case_id: Human-readable test case identifier.
         run_id:       Human-readable run identifier.
+        vehicle_mode: ``"rigid"`` or ``"articulated"``. Articulated mode validates
+                      Trailer_* columns and includes trailer timeseries in the result.
 
     Returns:
         Dict with keys:
             ``test_case_id``, ``run_id``,
             ``validation`` — {valid, errors, warnings},
             ``vut``        — timeseries arrays for all VUT channels,
-            ``actors``     — list of {actor_id, actor_type, actor_type_name, trajectory}.
+            ``actors``     — list of {actor_id, actor_type, actor_type_name, trajectory},
+            ``trailer``    — trailer timeseries {t, lat, lng, heading} (articulated only).
     """
     vut_df = load_vut(vut_bytes)
 
@@ -138,34 +185,33 @@ def evaluate(
     all_errors:   list[str] = list(vut_errors)
     all_warnings: list[str] = list(vut_warnings)
 
-    # Helper: extract a column as a list of rounded floats, defaulting to 0.0 for NaN.
-    def safe_col(df: pd.DataFrame, name: str, default: float = 0.0) -> list[float]:
-        if name in df.columns:
-            return [
-                round(float(v), 6)
-                if v is not None and not (isinstance(v, float) and math.isnan(v))
-                else default
-                for v in df[name]
-            ]
-        return [default] * len(df)
+    if vehicle_mode == "articulated":
+        te, tw = validate_trailer_vut(vut_df)
+        all_errors.extend(te)
+        all_warnings.extend(tw)
+
+    def _safe_col(name: str, decimals: int = 6, default: float = 0.0) -> list[float]:
+        if name not in vut_df.columns:
+            return [default] * len(vut_df)
+        return _to_float_list(vut_df[name], decimals, default)
 
     vut_data: dict[str, Any] = {
-        "t":              safe_col(vut_df, "t"),
-        "lat":            safe_col(vut_df, "VUT_pos_lat"),
-        "lng":            safe_col(vut_df, "VUT_pos_lng"),
-        "heading":        safe_col(vut_df, "VUT_heading"),
-        "vel_ms":         safe_col(vut_df, "VUT_vel_ms"),
-        "vel_kmh":        safe_col(vut_df, "VUT_vel_kmh"),
-        "accl_lat":       safe_col(vut_df, "VUT_accl_lat"),
-        "accl_lng":       safe_col(vut_df, "VUT_accl_lng"),
-        "braking_level":  safe_col(vut_df, "VUT_braking_level"),
-        "throttle_level": safe_col(vut_df, "VUT_throttle_level"),
-        "steering_pct":   safe_col(vut_df, "VUT_steering_angle_percentage"),
-        "ind_left":       safe_col(vut_df, "VUT_ind_st_dir_left"),
-        "ind_right":      safe_col(vut_df, "VUT_ind_st_dir_right"),
-        "ind_hazard":     safe_col(vut_df, "VUT_ind_st_hazard"),
-        "ind_reverse":    safe_col(vut_df, "VUT_ind_st_reverse"),
-        "ind_braking":    safe_col(vut_df, "VUT_ind_st_braking"),
+        "t":              _safe_col("t"),
+        "lat":            _safe_col("VUT_pos_lat"),
+        "lng":            _safe_col("VUT_pos_lng"),
+        "heading":        _safe_col("VUT_heading"),
+        "vel_ms":         _safe_col("VUT_vel_ms"),
+        "vel_kmh":        _safe_col("VUT_vel_kmh"),
+        "accl_lat":       _safe_col("VUT_accl_lat"),
+        "accl_lng":       _safe_col("VUT_accl_lng"),
+        "braking_level":  _safe_col("VUT_braking_level"),
+        "throttle_level": _safe_col("VUT_throttle_level"),
+        "steering_pct":   _safe_col("VUT_steering_angle_percentage"),
+        "ind_left":       _safe_col("VUT_ind_st_dir_left"),
+        "ind_right":      _safe_col("VUT_ind_st_dir_right"),
+        "ind_hazard":     _safe_col("VUT_ind_st_hazard"),
+        "ind_reverse":    _safe_col("VUT_ind_st_reverse"),
+        "ind_braking":    _safe_col("VUT_ind_st_braking"),
     }
 
     actors_result: list[dict[str, Any]] = []
@@ -173,12 +219,11 @@ def evaluate(
     if actor_bytes is not None:
         actor_df = load_actors(actor_bytes)
 
-        # Validate actor format
         actor_errors, actor_warnings = validate_actors(actor_df)
         all_errors.extend(actor_errors)
         all_warnings.extend(actor_warnings)
 
-        if "Actor_Id" in actor_df.columns:
+        if "Actor_Id" in actor_df.columns and _ACTOR_TRAJ_REQUIRED.issubset(actor_df.columns):
             # Build a step → t lookup once (O(n)) to avoid O(n²) per-actor scans.
             step_to_t: dict = (
                 dict(zip(vut_df["Step_number"], vut_df["t"]))
@@ -190,30 +235,14 @@ def evaluate(
                 atype  = int(a_rows["Actor_type"].iloc[0]) if "Actor_type" in a_rows.columns else 0
 
                 trajectory: dict[str, Any] = {
-                    "lat": [
-                        round(float(v), 6)
-                        if v is not None and not (isinstance(v, float) and math.isnan(v)) else 0.0
-                        for v in a_rows["Actor_pos_true_lat"]
-                    ],
-                    "lng": [
-                        round(float(v), 6)
-                        if v is not None and not (isinstance(v, float) and math.isnan(v)) else 0.0
-                        for v in a_rows["Actor_pos_true_lng"]
-                    ],
+                    "lat":     _to_float_list(a_rows["Actor_pos_true_lat"], 6),
+                    "lng":     _to_float_list(a_rows["Actor_pos_true_lng"], 6),
                     "heading": (
-                        [
-                            round(float(v), 4)
-                            if not (isinstance(v, float) and math.isnan(v)) else 0.0
-                            for v in a_rows["Actor_heading_true"]
-                        ]
+                        _to_float_list(a_rows["Actor_heading_true"], 4)
                         if "Actor_heading_true" in a_rows.columns
                         else [0.0] * len(a_rows)
                     ),
-                    # Map each actor Step_number to the VUT's relative time t
-                    "t": [
-                        round(float(step_to_t[s]), 4) if s in step_to_t else 0.0
-                        for s in a_rows["Step_number"]
-                    ],
+                    "t": a_rows["Step_number"].map(step_to_t).fillna(0.0).round(4).tolist(),
                 }
 
                 actors_result.append({
@@ -229,10 +258,15 @@ def evaluate(
         "warnings": all_warnings,
     }
 
-    return {
+    result: dict[str, Any] = {
         "test_case_id": test_case_id,
         "run_id":       run_id,
         "validation":   validation,
         "vut":          vut_data,
         "actors":       actors_result,
     }
+
+    if vehicle_mode == "articulated":
+        result["trailer"] = load_trailer(vut_df)
+
+    return result
