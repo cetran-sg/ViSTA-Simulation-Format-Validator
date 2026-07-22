@@ -6,6 +6,19 @@ The tool validates files in the **[ViSTA (Virtual Simulation Testing and Assessm
 
 ---
 
+## Screenshots
+
+| | |
+|---|---|
+| ![Upload tab with vehicle mode selector, data format guide, and ZIP drop zone](screenshots/01-upload-format-guide.png) | ![Batch validation results with per-run pass/fail status and error detail](screenshots/02-batch-validation-results.png) |
+| **Upload & format guide** — select Rigid or Articulated mode, review the required columns at a glance, then drop in a ZIP archive. | **Batch validation results** — every run in the archive is checked in one pass; expand a test case to see which runs failed and why. |
+| ![Visualisation tab for a valid run showing the trajectory map and velocity/acceleration charts](screenshots/03-visualisation-valid-run.png) | ![Visualisation tab for an invalid run — an out-of-range latitude collapses the trajectory map to a world view](screenshots/04-visualisation-invalid-coordinates.png) |
+| **Trajectory visualisation (valid run)** — animated map playback alongside velocity and acceleration time-series charts. | **Trajectory visualisation (invalid run)** — an out-of-range `VUT_pos_lat` value snaps the map to a world view, making bad coordinate data immediately obvious. |
+| ![Articulated mode rendering separate tractor and trailer bounding boxes on the trajectory map](screenshots/05-articulated-mode-bounding-boxes.png) | ![Timeline playback showing the tractor and trailer bounding boxes advancing along the track](screenshots/06-trajectory-playback-animation.png) |
+| **Articulated mode** — tractor and trailer are rendered as distinct bounding boxes (blue / orange), with braking, throttle, indicator and hazard charts alongside the map. | **Timeline playback** — scrubbing or playing the timeline advances the bounding boxes along the recorded trajectory in sync with the charts. |
+
+---
+
 ## Features
 
 - **Batch upload** — drop a ZIP archive containing multiple test cases and runs; all files are validated in one step
